@@ -5,12 +5,17 @@
 #import <SSHKitObjC/SSHKitError.h>
 
 #import <TargetConditionals.h>
+#import "SSHKitShell+Private.h"
 
 #if TARGET_OS_OSX
+#include <errno.h>
 #include <math.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <sys/stat.h>
+#include <sys/ioctl.h>
+#include <termios.h>
+#include <util.h>
 #include <unistd.h>
 
 @interface SSHCoreProcessResult : NSObject
@@ -30,6 +35,232 @@
         _standardError = [[NSMutableData alloc] init];
     }
     return self;
+}
+
+@end
+
+@interface SSHCoreOpenSSHShellRuntime : NSObject
+
+- (instancetype)initWithTask:(NSTask *)task
+        masterFileDescriptor:(int)masterFileDescriptor
+                eventHandler:(SSHKitShellEventHandler)eventHandler
+                    onClosed:(SSHCoreShellClosedBlock)onClosed;
+- (void)start;
+- (void)writeData:(NSData *)data completion:(SSHKitCompletion)completion;
+- (void)resizeWithColumns:(uint16_t)columns rows:(uint16_t)rows completion:(SSHKitCompletion)completion;
+- (void)closeWithCompletion:(SSHKitCompletion)completion;
+
+@end
+
+@interface SSHCoreOpenSSHShellRuntime ()
+
+@property (nonatomic) NSTask *task;
+@property (nonatomic) int masterFileDescriptor;
+@property (nonatomic, copy) SSHKitShellEventHandler eventHandler;
+@property (nonatomic, copy) SSHCoreShellClosedBlock onClosed;
+@property (nonatomic) dispatch_source_t readSource;
+@property (nonatomic) dispatch_queue_t eventQueue;
+@property (nonatomic) NSLock *lock;
+@property (nonatomic) BOOL closed;
+@property (nonatomic) BOOL didFinish;
+
+@end
+
+@implementation SSHCoreOpenSSHShellRuntime
+
+- (instancetype)initWithTask:(NSTask *)task
+        masterFileDescriptor:(int)masterFileDescriptor
+                eventHandler:(SSHKitShellEventHandler)eventHandler
+                    onClosed:(SSHCoreShellClosedBlock)onClosed {
+    self = [super init];
+    if (self) {
+        _task = task;
+        _masterFileDescriptor = masterFileDescriptor;
+        _eventHandler = [eventHandler copy];
+        _onClosed = [onClosed copy];
+        _lock = [[NSLock alloc] init];
+        _eventQueue = dispatch_queue_create("io.github.sshkit.core.openssh-shell.events", DISPATCH_QUEUE_SERIAL);
+
+        __weak SSHCoreOpenSSHShellRuntime *weakSelf = self;
+        _task.terminationHandler = ^(NSTask *terminatedTask) {
+            [weakSelf finishWithExitStatus:terminatedTask.terminationStatus];
+        };
+    }
+    return self;
+}
+
+- (void)start {
+    int flags = fcntl(self.masterFileDescriptor, F_GETFL, 0);
+    if (flags >= 0) {
+        fcntl(self.masterFileDescriptor, F_SETFL, flags | O_NONBLOCK);
+    }
+
+    self.readSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ,
+                                             (uintptr_t)self.masterFileDescriptor,
+                                             0,
+                                             self.eventQueue);
+    dispatch_source_set_event_handler(self.readSource, ^{
+        [self drainMasterFileDescriptor];
+    });
+    dispatch_source_set_cancel_handler(self.readSource, ^{
+        [self.lock lock];
+        if (self.masterFileDescriptor >= 0) {
+            close(self.masterFileDescriptor);
+            self.masterFileDescriptor = -1;
+        }
+        [self.lock unlock];
+    });
+
+    dispatch_resume(self.readSource);
+}
+
+- (void)drainMasterFileDescriptor {
+    uint8_t buffer[4096];
+    while (YES) {
+        ssize_t bytesRead = read(self.masterFileDescriptor, buffer, sizeof(buffer));
+        if (bytesRead > 0) {
+            NSData *data = [NSData dataWithBytes:buffer length:(NSUInteger)bytesRead];
+            SSHKitShellEvent *event = [[SSHKitShellEvent alloc] initWithKind:SSHKitShellEventKindStandardOutput
+                                                                        data:data
+                                                                  exitStatus:0];
+            self.eventHandler(event);
+            continue;
+        }
+
+        if (bytesRead == 0) {
+            return;
+        }
+
+        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
+            return;
+        }
+
+        return;
+    }
+}
+
+- (void)writeData:(NSData *)data completion:(SSHKitCompletion)completion {
+    [self.lock lock];
+    BOOL isClosed = self.closed;
+    int fileDescriptor = self.masterFileDescriptor;
+
+    if (isClosed || fileDescriptor < 0) {
+        [self.lock unlock];
+        completion(SSHKitMakeError(SSHKitErrorCodeInvalidState, @"SSH shell is closed."));
+        return;
+    }
+
+    const uint8_t *bytes = data.bytes;
+    NSUInteger remaining = data.length;
+    while (remaining > 0) {
+        ssize_t written = write(fileDescriptor, bytes, remaining);
+        if (written < 0 && errno == EINTR) {
+            continue;
+        }
+        if (written < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            if (![self waitForWritableFileDescriptor:fileDescriptor]) {
+                [self.lock unlock];
+                completion(SSHKitMakeError(SSHKitErrorCodeConnectionFailed, @"Timed out waiting for SSH shell input buffer."));
+                return;
+            }
+            continue;
+        }
+        if (written <= 0) {
+            [self.lock unlock];
+            completion(SSHKitMakeError(SSHKitErrorCodeConnectionFailed, @"Unable to write to SSH shell."));
+            return;
+        }
+        bytes += written;
+        remaining -= (NSUInteger)written;
+    }
+
+    [self.lock unlock];
+    completion(nil);
+}
+
+- (void)resizeWithColumns:(uint16_t)columns rows:(uint16_t)rows completion:(SSHKitCompletion)completion {
+    [self.lock lock];
+    BOOL isClosed = self.closed;
+    int fileDescriptor = self.masterFileDescriptor;
+
+    if (isClosed || fileDescriptor < 0) {
+        [self.lock unlock];
+        completion(SSHKitMakeError(SSHKitErrorCodeInvalidState, @"SSH shell is closed."));
+        return;
+    }
+
+    struct winsize size = {0};
+    size.ws_col = columns;
+    size.ws_row = rows;
+    if (ioctl(fileDescriptor, TIOCSWINSZ, &size) != 0) {
+        [self.lock unlock];
+        completion(SSHKitMakeError(SSHKitErrorCodeConnectionFailed, @"Unable to resize SSH shell PTY."));
+        return;
+    }
+
+    [self.lock unlock];
+    completion(nil);
+}
+
+- (void)closeWithCompletion:(SSHKitCompletion)completion {
+    [self.lock lock];
+    BOOL alreadyClosed = self.closed;
+    self.closed = YES;
+    dispatch_source_t readSource = self.readSource;
+    self.readSource = nil;
+    [self.lock unlock];
+
+    if (!alreadyClosed && readSource) {
+        dispatch_source_cancel(readSource);
+    }
+
+    if (self.task.isRunning) {
+        [self.task terminate];
+    }
+
+    completion(nil);
+}
+
+- (void)finishWithExitStatus:(int32_t)exitStatus {
+    [self.lock lock];
+    if (self.didFinish) {
+        [self.lock unlock];
+        return;
+    }
+    self.didFinish = YES;
+    self.closed = YES;
+    dispatch_source_t readSource = self.readSource;
+    self.readSource = nil;
+    [self.lock unlock];
+
+    if (readSource) {
+        dispatch_sync(self.eventQueue, ^{
+            [self drainMasterFileDescriptor];
+        });
+        dispatch_source_cancel(readSource);
+    }
+
+    self.onClosed(exitStatus);
+}
+
+- (BOOL)waitForWritableFileDescriptor:(int)fileDescriptor {
+    fd_set writeSet;
+    FD_ZERO(&writeSet);
+    FD_SET(fileDescriptor, &writeSet);
+    struct timeval timeout = { .tv_sec = 5, .tv_usec = 0 };
+    int result = select(fileDescriptor + 1, NULL, &writeSet, NULL, &timeout);
+    return result > 0 && FD_ISSET(fileDescriptor, &writeSet);
+}
+
+- (void)dealloc {
+    [self.lock lock];
+    int fileDescriptor = self.masterFileDescriptor;
+    self.masterFileDescriptor = -1;
+    [self.lock unlock];
+
+    if (fileDescriptor >= 0) {
+        close(fileDescriptor);
+    }
 }
 
 @end
@@ -61,6 +292,7 @@
 - (BOOL)verifyConnectionWithError:(NSError **)error {
 #if TARGET_OS_OSX
     SSHCoreProcessResult *result = [self runSSHWithRemoteCommand:@"true"
+                                                      requestPTY:NO
                                                          timeout:self.configuration.timeout
                                                        operation:@"connect"
                                                            error:error];
@@ -86,7 +318,143 @@
 
 - (nullable SSHKitCommandResult *)executeCommand:(NSString *)command error:(NSError **)error {
 #if TARGET_OS_OSX
+    return [self executeCommand:command requestPTY:NO error:error];
+#else
+    if (error) {
+        *error = SSHKitMakeError(SSHKitErrorCodeUnavailable, @"OpenSSH process backend is available on macOS only.");
+    }
+    return nil;
+#endif
+}
+
+- (nullable SSHKitCommandResult *)executePTYCommand:(NSString *)command error:(NSError **)error {
+#if TARGET_OS_OSX
+    return [self executeCommand:command requestPTY:YES error:error];
+#else
+    if (error) {
+        *error = SSHKitMakeError(SSHKitErrorCodeUnavailable, @"OpenSSH process backend is available on macOS only.");
+    }
+    return nil;
+#endif
+}
+
+- (nullable SSHKitShell *)openShellWithTerminalType:(NSString *)terminalType
+                                            columns:(uint16_t)columns
+                                               rows:(uint16_t)rows
+                                       eventHandler:(SSHKitShellEventHandler)eventHandler
+                                           onClosed:(SSHCoreShellClosedBlock)onClosed
+                                              error:(NSError **)error {
+#if TARGET_OS_OSX
+    NSTask *task = [[NSTask alloc] init];
+    task.executableURL = [NSURL fileURLWithPath:@"/usr/bin/ssh"];
+    task.arguments = [[self sshArgumentsWithRemoteCommand:nil requestPTY:YES] copy];
+
+    NSError *environmentError = nil;
+    NSMutableDictionary<NSString *, NSString *> *environment = [[self environmentForTaskWithError:&environmentError] mutableCopy];
+    if (!environment) {
+        if (error) {
+            *error = environmentError;
+        }
+        return nil;
+    }
+    environment[@"TERM"] = terminalType;
+    task.environment = environment;
+
+    int masterFileDescriptor = -1;
+    int slaveFileDescriptor = -1;
+    struct winsize initialSize = {0};
+    initialSize.ws_col = columns;
+    initialSize.ws_row = rows;
+    if (openpty(&masterFileDescriptor, &slaveFileDescriptor, NULL, NULL, &initialSize) != 0) {
+        if (error) {
+            *error = SSHKitMakeError(SSHKitErrorCodeConnectionFailed, @"Unable to allocate local PTY for SSH shell.");
+        }
+        return nil;
+    }
+
+    int stdinFileDescriptor = dup(slaveFileDescriptor);
+    int stdoutFileDescriptor = dup(slaveFileDescriptor);
+    int stderrFileDescriptor = dup(slaveFileDescriptor);
+    close(slaveFileDescriptor);
+    if (stdinFileDescriptor < 0 || stdoutFileDescriptor < 0 || stderrFileDescriptor < 0) {
+        if (stdinFileDescriptor >= 0) {
+            close(stdinFileDescriptor);
+        }
+        if (stdoutFileDescriptor >= 0) {
+            close(stdoutFileDescriptor);
+        }
+        if (stderrFileDescriptor >= 0) {
+            close(stderrFileDescriptor);
+        }
+        close(masterFileDescriptor);
+        if (error) {
+            *error = SSHKitMakeError(SSHKitErrorCodeConnectionFailed, @"Unable to prepare SSH shell PTY handles.");
+        }
+        return nil;
+    }
+
+    task.standardInput = [[NSFileHandle alloc] initWithFileDescriptor:stdinFileDescriptor closeOnDealloc:YES];
+    task.standardOutput = [[NSFileHandle alloc] initWithFileDescriptor:stdoutFileDescriptor closeOnDealloc:YES];
+    task.standardError = [[NSFileHandle alloc] initWithFileDescriptor:stderrFileDescriptor closeOnDealloc:YES];
+
+    SSHCoreOpenSSHShellRuntime *runtime = [[SSHCoreOpenSSHShellRuntime alloc] initWithTask:task
+                                                                      masterFileDescriptor:masterFileDescriptor
+                                                                              eventHandler:eventHandler
+                                                                                  onClosed:^(int32_t exitStatus) {
+        [self clearCurrentTask:task];
+        [self removeAskPassFilesIfNeeded];
+        onClosed(exitStatus);
+    }];
+
+    [self.taskLock lock];
+    self.currentTask = task;
+    BOOL wasCancelledBeforeLaunch = self.taskCancelled;
+    [self.taskLock unlock];
+
+    if (wasCancelledBeforeLaunch) {
+        [self clearCurrentTask:task];
+        [self removeAskPassFilesIfNeeded];
+        if (error) {
+            *error = SSHKitMakeError(SSHKitErrorCodeCancelled, @"SSH shell was cancelled before launch.");
+        }
+        return nil;
+    }
+
+    NSError *launchError = nil;
+    if (![task launchAndReturnError:&launchError]) {
+        [self clearCurrentTask:task];
+        [self removeAskPassFilesIfNeeded];
+        if (error) {
+            *error = SSHKitMakeError(SSHKitErrorCodeUnavailable, launchError.localizedDescription);
+        }
+        return nil;
+    }
+
+    [runtime start];
+
+    SSHKitShell *shell = [[SSHKitShell alloc] initWithWriteBlock:^(NSData *data, SSHKitCompletion completion) {
+        [runtime writeData:data completion:completion];
+    } resizeBlock:^(uint16_t resizeColumns, uint16_t resizeRows, SSHKitCompletion completion) {
+        [runtime resizeWithColumns:resizeColumns rows:resizeRows completion:completion];
+    } closeBlock:^(SSHKitCompletion completion) {
+        [runtime closeWithCompletion:completion];
+    }];
+    return shell;
+#else
+    if (error) {
+        *error = SSHKitMakeError(SSHKitErrorCodeUnavailable, @"OpenSSH process backend is available on macOS only.");
+    }
+    return nil;
+#endif
+}
+
+#if TARGET_OS_OSX
+
+- (nullable SSHKitCommandResult *)executeCommand:(NSString *)command
+                                      requestPTY:(BOOL)requestPTY
+                                           error:(NSError **)error {
     SSHCoreProcessResult *result = [self runSSHWithRemoteCommand:command
+                                                      requestPTY:requestPTY
                                                          timeout:self.configuration.timeout
                                                        operation:@"command"
                                                            error:error];
@@ -97,13 +465,9 @@
     return [[SSHKitCommandResult alloc] initWithStandardOutput:result.standardOutput
                                                 standardError:result.standardError
                                                    exitStatus:result.exitStatus];
-#else
-    if (error) {
-        *error = SSHKitMakeError(SSHKitErrorCodeUnavailable, @"OpenSSH process backend is available on macOS only.");
-    }
-    return nil;
-#endif
 }
+
+#endif
 
 - (void)cancelCurrentTask {
 #if TARGET_OS_OSX
@@ -123,12 +487,13 @@
 #if TARGET_OS_OSX
 
 - (nullable SSHCoreProcessResult *)runSSHWithRemoteCommand:(NSString *)remoteCommand
+                                                requestPTY:(BOOL)requestPTY
                                                    timeout:(NSTimeInterval)timeout
                                                  operation:(NSString *)operation
                                                      error:(NSError **)error {
     NSTask *task = [[NSTask alloc] init];
     task.executableURL = [NSURL fileURLWithPath:@"/usr/bin/ssh"];
-    task.arguments = [[self sshArgumentsWithRemoteCommand:remoteCommand] copy];
+    task.arguments = [[self sshArgumentsWithRemoteCommand:remoteCommand requestPTY:requestPTY] copy];
 
     NSError *environmentError = nil;
     NSDictionary<NSString *, NSString *> *environment = [self environmentForTaskWithError:&environmentError];
@@ -210,7 +575,7 @@
     return result;
 }
 
-- (NSMutableArray<NSString *> *)sshArgumentsWithRemoteCommand:(NSString *)remoteCommand {
+- (NSMutableArray<NSString *> *)sshArgumentsWithRemoteCommand:(nullable NSString *)remoteCommand requestPTY:(BOOL)requestPTY {
     NSMutableArray<NSString *> *arguments = [[NSMutableArray alloc] init];
     [arguments addObjectsFromArray:@[
         @"-F", @"/dev/null",
@@ -220,12 +585,18 @@
         @"-o", @"LogLevel=ERROR",
     ]];
 
+    if (requestPTY) {
+        [arguments addObject:@"-tt"];
+    }
+
     [self appendHostKeyArgumentsToArguments:arguments];
     [self appendAuthenticationArgumentsToArguments:arguments];
 
     NSString *destination = [NSString stringWithFormat:@"%@@%@", self.configuration.username, self.configuration.host];
     [arguments addObject:destination];
-    [arguments addObject:remoteCommand];
+    if (remoteCommand.length > 0) {
+        [arguments addObject:remoteCommand];
+    }
     return arguments;
 }
 

@@ -30,6 +30,24 @@
     XCTAssertEqual(worker.state, SSHCoreSessionStateClosed);
 }
 
+- (void)testWorkerAllowsDocumentedShellLifecycle {
+    SSHCoreSessionWorker *worker = [[SSHCoreSessionWorker alloc] init];
+    XCTestExpectation *expectation = [self expectationWithDescription:@"shell state transitions complete"];
+
+    [worker async:^{
+        [worker transitionToState:SSHCoreSessionStateConnecting];
+        [worker transitionToState:SSHCoreSessionStateReady];
+        [worker transitionToState:SSHCoreSessionStateRunningShell];
+        [worker transitionToState:SSHCoreSessionStateReady];
+        [worker transitionToState:SSHCoreSessionStateClosing];
+        [worker transitionToState:SSHCoreSessionStateClosed];
+        [expectation fulfill];
+    }];
+
+    [self waitForExpectationsWithTimeout:2 handler:nil];
+    XCTAssertEqual(worker.state, SSHCoreSessionStateClosed);
+}
+
 - (void)testWorkerRejectsConcurrentJobs {
     SSHCoreSessionWorker *worker = [[SSHCoreSessionWorker alloc] init];
     XCTestExpectation *expectation = [self expectationWithDescription:@"invalid state raises"];

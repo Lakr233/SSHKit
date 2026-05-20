@@ -51,6 +51,30 @@ final class AlpineSSHFixtureTests: XCTestCase {
         }
     }
 
+    func testPrivateKeyLoginExecutesPTYCommand() throws {
+        try requireLiveTestsEnabled()
+
+        let fixture = try AlpineSSHFixture()
+        let connection = try connect(
+            authentication: .privateKeyFile(path: makePrivateKeyFile(fixture: fixture)),
+            fixture: fixture,
+            knownHostsPath: makeKnownHostsFile(fixture: fixture),
+        )
+
+        do {
+            let result = try awaitShellPTYSession(on: connection)
+            try close(connection)
+            assertPTYCommandResult(result)
+        } catch {
+            do {
+                try close(connection)
+            } catch {
+                XCTFail("Closing connection after PTY test failure failed: \(error)")
+            }
+            throw error
+        }
+    }
+
     private func requireLiveTestsEnabled() throws {
         guard ProcessInfo.processInfo.environment["SSHKIT_RUN_LIVE_TESTS"] == "1" else {
             throw XCTSkip("Set SSHKIT_RUN_LIVE_TESTS=1 to run Alpine SSH live fixture tests.")
@@ -128,6 +152,92 @@ final class AlpineSSHFixtureTests: XCTestCase {
         return try XCTUnwrap(commandResult).get()
     }
 
+    private func awaitShellPTYSession(on connection: SSHConnection) throws -> SSHCommandResult {
+        let openExpectation = expectation(description: "Open Alpine SSH PTY shell")
+        let closedExpectation = expectation(description: "Close Alpine SSH PTY shell")
+        let shellCapture = ShellCapture()
+        var openResult: Result<SSHShell, SSHKitError>?
+
+        connection.openShell(terminalType: "xterm-256color", columns: 100, rows: 40, callbackQueue: .main) { event in
+            switch event {
+            case let .standardOutput(data), let .standardError(data):
+                shellCapture.append(data)
+            case let .closed(status):
+                shellCapture.setExitStatus(status)
+                closedExpectation.fulfill()
+            }
+        } completion: { result in
+            openResult = result
+            openExpectation.fulfill()
+        }
+
+        wait(for: [openExpectation], timeout: 15)
+        let shell = try XCTUnwrap(openResult).get()
+        try resize(shell, columns: 120, rows: 42)
+        try write("tty && printf 'shell-ok\\n'\nexit\n", to: shell)
+        wait(for: [closedExpectation], timeout: 15)
+        try assertShellRejectsUseAfterClose(shell)
+
+        return try SSHCommandResult(
+            standardOutput: shellCapture.standardOutput(),
+            standardError: Data(),
+            exitStatus: XCTUnwrap(shellCapture.exitStatus()),
+        )
+    }
+
+    private func assertPTYCommandResult(_ result: SSHCommandResult) {
+        XCTAssertEqual(result.exitStatus, 0)
+        let standardOutput = String(data: result.standardOutput, encoding: .utf8) ?? ""
+        XCTAssertTrue(standardOutput.contains("/dev/pts/") || standardOutput.contains("/dev/ttys"))
+        XCTAssertTrue(standardOutput.contains("shell-ok"))
+    }
+
+    private func resize(_ shell: SSHShell, columns: UInt16, rows: UInt16) throws {
+        let expectation = expectation(description: "Resize Alpine SSH PTY shell")
+        var resizeResult: Result<Void, SSHKitError>?
+        shell.resize(columns: columns, rows: rows, callbackQueue: .main) { result in
+            resizeResult = result
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 15)
+        try XCTUnwrap(resizeResult).get()
+    }
+
+    private func write(_ string: String, to shell: SSHShell) throws {
+        let expectation = expectation(description: "Write Alpine SSH PTY shell command")
+        var writeResult: Result<Void, SSHKitError>?
+        shell.write(Data(string.utf8), callbackQueue: .main) { result in
+            writeResult = result
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 15)
+        try XCTUnwrap(writeResult).get()
+    }
+
+    private func assertShellRejectsUseAfterClose(_ shell: SSHShell) throws {
+        let resizeExpectation = expectation(description: "Reject resize after shell close")
+        var resizeResult: Result<Void, SSHKitError>?
+        shell.resize(columns: 120, rows: 42, callbackQueue: .main) { result in
+            resizeResult = result
+            resizeExpectation.fulfill()
+        }
+        wait(for: [resizeExpectation], timeout: 15)
+        XCTAssertThrowsError(try XCTUnwrap(resizeResult).get()) { error in
+            XCTAssertEqual((error as? SSHKitError)?.code, SSHKitErrorCode.invalidState.rawValue)
+        }
+
+        let writeExpectation = expectation(description: "Reject write after shell close")
+        var writeResult: Result<Void, SSHKitError>?
+        shell.write(Data("printf after-close\n".utf8), callbackQueue: .main) { result in
+            writeResult = result
+            writeExpectation.fulfill()
+        }
+        wait(for: [writeExpectation], timeout: 15)
+        XCTAssertThrowsError(try XCTUnwrap(writeResult).get()) { error in
+            XCTAssertEqual((error as? SSHKitError)?.code, SSHKitErrorCode.invalidState.rawValue)
+        }
+    }
+
     private func close(_ connection: SSHConnection) throws {
         let expectation = expectation(description: "Close Alpine SSH fixture connection")
         var closeResult: Result<Void, SSHKitError>?
@@ -164,6 +274,36 @@ private struct AlpineSSHFixture {
             throw XCTSkip("Missing required live SSH test environment value: \(name)")
         }
         return value
+    }
+}
+
+private final class ShellCapture: @unchecked Sendable {
+    private let lock = NSLock()
+    private var output = Data()
+    private var status: Int32?
+
+    func append(_ data: Data) {
+        lock.lock()
+        output.append(data)
+        lock.unlock()
+    }
+
+    func setExitStatus(_ exitStatus: Int32) {
+        lock.lock()
+        status = exitStatus
+        lock.unlock()
+    }
+
+    func standardOutput() -> Data {
+        lock.lock()
+        defer { lock.unlock() }
+        return output
+    }
+
+    func exitStatus() -> Int32? {
+        lock.lock()
+        defer { lock.unlock() }
+        return status
     }
 }
 

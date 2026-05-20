@@ -1,7 +1,7 @@
 import Foundation
 import SSHKitObjC
 
-public final class SSHConnection {
+public final class SSHConnection: @unchecked Sendable {
     private let session: SSHKitConnection
 
     init(session: SSHKitConnection) {
@@ -53,6 +53,32 @@ public final class SSHConnection {
 
             callbackQueue.async {
                 completion(.success(()))
+            }
+        }
+    }
+
+    public func execute(_ command: String) async throws -> SSHCommandResult {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                execute(command, callbackQueue: .global()) { result in
+                    continuation.resume(with: result)
+                }
+            }
+        } onCancel: {
+            close(callbackQueue: .global()) { _ in
+            }
+        }
+    }
+
+    public func close() async throws {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                close(callbackQueue: .global()) { result in
+                    continuation.resume(with: result)
+                }
+            }
+        } onCancel: {
+            close(callbackQueue: .global()) { _ in
             }
         }
     }

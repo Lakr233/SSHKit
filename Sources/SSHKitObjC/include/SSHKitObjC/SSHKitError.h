@@ -10,6 +10,8 @@ typedef NS_ERROR_ENUM(SSHKitErrorDomain, SSHKitErrorCode) {
     SSHKitErrorCodeConnectionFailed = 3,
     SSHKitErrorCodeAuthenticationFailed = 4,
     SSHKitErrorCodeCommandFailed = 5,
+    SSHKitErrorCodeHostKeyVerificationFailed = 6,
+    SSHKitErrorCodeCancelled = 7,
 };
 
 NSError *SSHKitMakeError(SSHKitErrorCode code, NSString *message);

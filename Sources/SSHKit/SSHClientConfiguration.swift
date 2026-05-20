@@ -1,6 +1,6 @@
 import Foundation
 
-public struct SSHClientConfiguration: Equatable {
+public struct SSHClientConfiguration: Equatable, Sendable {
     public var host: String
     public var port: UInt16
     public var username: String

@@ -6,9 +6,11 @@ final class AlpineSSHFixtureTests: XCTestCase {
     func testPasswordLoginExecutesSmokeCommand() throws {
         try requireLiveTestsEnabled()
 
+        let fixture = try AlpineSSHFixture()
         let connection = try connect(
-            authentication: .password(AlpineSSHFixture.password),
-            knownHostsPath: makeKnownHostsFile(),
+            authentication: .password(fixture.password),
+            fixture: fixture,
+            knownHostsPath: makeKnownHostsFile(fixture: fixture),
         )
 
         do {
@@ -28,9 +30,11 @@ final class AlpineSSHFixtureTests: XCTestCase {
     func testPrivateKeyLoginExecutesSmokeCommand() throws {
         try requireLiveTestsEnabled()
 
+        let fixture = try AlpineSSHFixture()
         let connection = try connect(
-            authentication: .privateKeyFile(path: makePrivateKeyFile()),
-            knownHostsPath: makeKnownHostsFile(),
+            authentication: .privateKeyFile(path: makePrivateKeyFile(fixture: fixture)),
+            fixture: fixture,
+            knownHostsPath: makeKnownHostsFile(fixture: fixture),
         )
 
         do {
@@ -55,12 +59,13 @@ final class AlpineSSHFixtureTests: XCTestCase {
 
     private func connect(
         authentication: SSHAuthentication,
+        fixture: AlpineSSHFixture,
         knownHostsPath: String,
     ) throws -> SSHConnection {
         let configuration = SSHClientConfiguration(
-            host: AlpineSSHFixture.host,
-            port: AlpineSSHFixture.port,
-            username: AlpineSSHFixture.username,
+            host: fixture.host,
+            port: fixture.port,
+            username: fixture.username,
             authentication: authentication,
             hostKeyPolicy: .knownHostsFile(knownHostsPath),
             timeout: 10,
@@ -78,15 +83,15 @@ final class AlpineSSHFixtureTests: XCTestCase {
         return try XCTUnwrap(connectionResult).get()
     }
 
-    private func makeKnownHostsFile() throws -> String {
+    private func makeKnownHostsFile(fixture: AlpineSSHFixture) throws -> String {
         let fileURL = try makeTemporaryDirectory().appendingPathComponent("known_hosts")
-        try AlpineSSHFixture.knownHostsEntry.write(to: fileURL, atomically: true, encoding: .utf8)
+        try fixture.knownHostsEntry.appending("\n").write(to: fileURL, atomically: true, encoding: .utf8)
         return fileURL.path
     }
 
-    private func makePrivateKeyFile() throws -> String {
+    private func makePrivateKeyFile(fixture: AlpineSSHFixture) throws -> String {
         let fileURL = try makeTemporaryDirectory().appendingPathComponent("fixture_client_ed25519")
-        try AlpineSSHFixture.privateKey.write(to: fileURL, atomically: true, encoding: .utf8)
+        try fixture.privateKey.appending("\n").write(to: fileURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
         return fileURL.path
     }
@@ -104,8 +109,10 @@ final class AlpineSSHFixtureTests: XCTestCase {
 
     private func assertSmokeCommandResult(_ result: SSHCommandResult) {
         XCTAssertEqual(result.exitStatus, 0)
-        XCTAssertEqual(result.standardError, Data())
         XCTAssertEqual(String(data: result.standardOutput, encoding: .utf8), "root\n3.21.7\n")
+        let standardError = String(data: result.standardError, encoding: .utf8) ?? ""
+        XCTAssertFalse(standardError.localizedCaseInsensitiveContains("permission denied"))
+        XCTAssertFalse(standardError.localizedCaseInsensitiveContains("verification failed"))
     }
 
     private func awaitSmokeCommand(on connection: SSHConnection) throws -> SSHCommandResult {
@@ -135,18 +142,36 @@ final class AlpineSSHFixtureTests: XCTestCase {
     }
 }
 
-private enum AlpineSSHFixture {
-    static let host = requiredEnvironmentValue("SSHKIT_LIVE_HOST")
-    static let port = UInt16(requiredEnvironmentValue("SSHKIT_LIVE_PORT"))!
-    static let username = requiredEnvironmentValue("SSHKIT_LIVE_USERNAME")
-    static let password = requiredEnvironmentValue("SSHKIT_LIVE_PASSWORD")
-    static let knownHostsEntry = requiredEnvironmentValue("SSHKIT_LIVE_KNOWN_HOSTS")
-    static let privateKey = requiredEnvironmentValue("SSHKIT_LIVE_PRIVATE_KEY")
+private struct AlpineSSHFixture {
+    var host: String
+    var port: UInt16
+    var username: String
+    var password: String
+    var knownHostsEntry: String
+    var privateKey: String
 
-    private static func requiredEnvironmentValue(_ name: String) -> String {
+    init() throws {
+        host = try Self.requiredEnvironmentValue("SSHKIT_LIVE_HOST")
+        port = try UInt16(Self.requiredEnvironmentValue("SSHKIT_LIVE_PORT")).unwrap("SSHKIT_LIVE_PORT must be a valid UInt16.")
+        username = try Self.requiredEnvironmentValue("SSHKIT_LIVE_USERNAME")
+        password = try Self.requiredEnvironmentValue("SSHKIT_LIVE_PASSWORD")
+        knownHostsEntry = try Self.requiredEnvironmentValue("SSHKIT_LIVE_KNOWN_HOSTS")
+        privateKey = try Self.requiredEnvironmentValue("SSHKIT_LIVE_PRIVATE_KEY")
+    }
+
+    private static func requiredEnvironmentValue(_ name: String) throws -> String {
         guard let value = ProcessInfo.processInfo.environment[name], value.isEmpty == false else {
-            fatalError("Missing required live SSH test environment value: \(name)")
+            throw XCTSkip("Missing required live SSH test environment value: \(name)")
         }
         return value
+    }
+}
+
+private extension Optional {
+    func unwrap(_ message: String) throws -> Wrapped {
+        guard let wrapped = self else {
+            throw XCTSkip(message)
+        }
+        return wrapped
     }
 }

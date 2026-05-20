@@ -1,11 +1,13 @@
 #import <SSHKitObjC/SSHKitError.h>
 #import <SSHKitObjC/SSHKitConnection.h>
+#import "SSHCoreOpenSSHClient.h"
 #import "SSHCoreSessionWorker.h"
 
 @interface SSHKitConnection ()
 
 @property (nonatomic, copy, readwrite) SSHKitConfiguration *configuration;
 @property (nonatomic) SSHCoreSessionWorker *worker;
+@property (nonatomic) SSHCoreOpenSSHClient *client;
 
 @end
 
@@ -32,23 +34,35 @@
     if (self) {
         _configuration = [configuration copy];
         _worker = [[SSHCoreSessionWorker alloc] init];
+        _client = [[SSHCoreOpenSSHClient alloc] initWithConfiguration:_configuration];
     }
     return self;
 }
 
 - (void)connectWithCompletion:(SSHKitCompletion)completion {
     [self.worker async:^{
+        if (self.worker.state != SSHCoreSessionStateIdle) {
+            NSError *error = SSHKitMakeError(SSHKitErrorCodeCancelled, @"SSH connection was cancelled before connect began.");
+            [self completeOnDefaultQueue:completion error:error];
+            return;
+        }
+
         [self.worker transitionToState:SSHCoreSessionStateConnecting];
-        NSError *error = SSHKitMakeError(
-            SSHKitErrorCodeUnavailable,
-            @"libssh source target is not wired into SSHKitObjC yet."
-        );
+        NSError *error = nil;
+        if ([self.client verifyConnectionWithError:&error]) {
+            [self.worker transitionToState:SSHCoreSessionStateReady];
+            [self completeOnDefaultQueue:completion error:nil];
+            return;
+        }
+
         [self.worker transitionToState:SSHCoreSessionStateClosed];
         [self completeOnDefaultQueue:completion error:error];
     }];
 }
 
 - (void)executeCommand:(NSString *)command completion:(SSHKitCommandCompletion)completion {
+    NSParameterAssert(command.length > 0);
+
     [self.worker async:^{
         if (self.worker.state != SSHCoreSessionStateReady) {
             NSError *error = SSHKitMakeError(SSHKitErrorCodeInvalidState, @"SSH session is not connected.");
@@ -56,15 +70,16 @@
             return;
         }
 
-        NSError *error = SSHKitMakeError(
-            SSHKitErrorCodeUnavailable,
-            @"libssh command execution is not wired into SSHKitObjC yet."
-        );
-        [self completeCommandOnDefaultQueue:completion result:nil error:error];
+        [self.worker transitionToState:SSHCoreSessionStateRunningCommand];
+        NSError *error = nil;
+        SSHKitCommandResult *result = [self.client executeCommand:command error:&error];
+        [self.worker transitionToState:SSHCoreSessionStateReady];
+        [self completeCommandOnDefaultQueue:completion result:result error:error];
     }];
 }
 
 - (void)disconnectWithCompletion:(SSHKitCompletion)completion {
+    [self.client cancelCurrentTask];
     [self.worker requestClose];
     [self.worker async:^{
         [self completeOnDefaultQueue:completion error:nil];

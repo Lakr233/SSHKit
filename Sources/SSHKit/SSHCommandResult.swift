@@ -1,6 +1,6 @@
 import Foundation
 
-public struct SSHCommandResult: Equatable {
+public struct SSHCommandResult: Equatable, Sendable {
     public var standardOutput: Data
     public var standardError: Data
     public var exitStatus: Int32

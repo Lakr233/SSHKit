@@ -8,6 +8,10 @@ public enum SSHKitErrorCode: Int, Sendable {
     case commandFailed = 5
     case hostKeyVerificationFailed = 6
     case cancelled = 7
+    case sftpFailure = 8
+    case sftpFileNotFound = 9
+    case sftpPermissionDenied = 10
+    case sftpNoSpace = 11
 }
 
 public struct SSHKitError: Error, Equatable, LocalizedError, Sendable {

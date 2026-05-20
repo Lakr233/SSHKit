@@ -30,9 +30,11 @@ import Testing
 }
 
 @Test func `SFTP entry keeps filename`() {
-    let entry = SFTPEntry(filename: "upload.txt")
+    let attributes = SFTPAttributes(size: 12, permissions: 0o644, uid: 501, gid: 20, type: 1)
+    let entry = SFTPEntry(filename: "upload.txt", attributes: attributes)
 
     #expect(entry.filename == "upload.txt")
+    #expect(entry.attributes == attributes)
 }
 
 @Test func `keyboard interactive bridge forwards prompts`() throws {

@@ -15,11 +15,36 @@ NS_ASSUME_NONNULL_BEGIN
 
 @end
 
+@class SSHKitSFTPAttributes;
+@class SSHKitSFTPFileHandle;
+
 @interface SSHKitSFTPEntry : NSObject
 
 @property (nonatomic, copy, readonly) NSString *filename;
+@property (nonatomic, nullable, readonly) SSHKitSFTPAttributes *attributes;
 
 - (instancetype)initWithFilename:(NSString *)filename;
+- (instancetype)initWithFilename:(NSString *)filename attributes:(nullable SSHKitSFTPAttributes *)attributes;
+
+@end
+
+@interface SSHKitSFTPAttributes : NSObject
+
+@property (nonatomic, readonly) uint64_t size;
+@property (nonatomic, readonly) uint32_t permissions;
+@property (nonatomic, readonly) uint32_t uid;
+@property (nonatomic, readonly) uint32_t gid;
+@property (nonatomic, readonly) uint8_t type;
+@property (nonatomic, nullable, readonly) NSDate *accessedAt;
+@property (nonatomic, nullable, readonly) NSDate *modifiedAt;
+
+- (instancetype)initWithSize:(uint64_t)size
+                 permissions:(uint32_t)permissions
+                         uid:(uint32_t)uid
+                         gid:(uint32_t)gid
+                        type:(uint8_t)type
+                  accessedAt:(nullable NSDate *)accessedAt
+                  modifiedAt:(nullable NSDate *)modifiedAt;
 
 @end
 
@@ -99,12 +124,53 @@ typedef void (^SSHKitShellEventHandler)(SSHKitShellEvent *event);
 @end
 
 typedef void (^SSHKitSFTPListCompletion)(NSArray<SSHKitSFTPEntry *> *_Nullable entries, NSError *_Nullable error);
+typedef void (^SSHKitSFTPStringCompletion)(NSString *_Nullable value, NSError *_Nullable error);
+typedef void (^SSHKitSFTPAttributesCompletion)(SSHKitSFTPAttributes *_Nullable attributes, NSError *_Nullable error);
+typedef void (^SSHKitSFTPDataCompletion)(NSData *_Nullable data, NSError *_Nullable error);
+typedef void (^SSHKitSFTPFileHandleCompletion)(SSHKitSFTPFileHandle *_Nullable handle, NSError *_Nullable error);
+typedef void (^SSHKitSFTPFileSystemAttributesCompletion)(NSDictionary<NSString *, NSNumber *> *_Nullable attributes, NSError *_Nullable error);
+typedef void (^SSHKitSFTPProgressHandler)(uint64_t completedBytes, uint64_t totalBytes);
+
+typedef NS_OPTIONS(NSUInteger, SSHKitSFTPFileOpenFlags) {
+    SSHKitSFTPFileOpenFlagRead = 1 << 0,
+    SSHKitSFTPFileOpenFlagWrite = 1 << 1,
+    SSHKitSFTPFileOpenFlagCreate = 1 << 2,
+    SSHKitSFTPFileOpenFlagTruncate = 1 << 3,
+    SSHKitSFTPFileOpenFlagAppend = 1 << 4,
+};
+
+@interface SSHKitSFTPFileHandle : NSObject
+
+- (void)readDataWithMaximumLength:(NSUInteger)maximumLength completion:(SSHKitSFTPDataCompletion)completion;
+- (void)writeData:(NSData *)data completion:(SSHKitCompletion)completion;
+- (void)seekToOffset:(uint64_t)offset completion:(SSHKitCompletion)completion;
+- (void)closeWithCompletion:(SSHKitCompletion)completion;
+
+@end
 
 @interface SSHKitSFTPClient : NSObject
 
 - (void)listDirectory:(NSString *)path completion:(SSHKitSFTPListCompletion)completion;
+- (void)realpath:(NSString *)path completion:(SSHKitSFTPStringCompletion)completion;
+- (void)statPath:(NSString *)path completion:(SSHKitSFTPAttributesCompletion)completion;
+- (void)lstatPath:(NSString *)path completion:(SSHKitSFTPAttributesCompletion)completion;
+- (void)setPermissions:(uint32_t)permissions atPath:(NSString *)path completion:(SSHKitCompletion)completion;
+- (void)fileSystemAttributesAtPath:(NSString *)path completion:(SSHKitSFTPFileSystemAttributesCompletion)completion;
+- (void)createDirectoryAtPath:(NSString *)path permissions:(uint32_t)permissions completion:(SSHKitCompletion)completion;
+- (void)removeDirectoryAtPath:(NSString *)path completion:(SSHKitCompletion)completion;
+- (void)removeFileAtPath:(NSString *)path completion:(SSHKitCompletion)completion;
+- (void)renamePath:(NSString *)sourcePath toPath:(NSString *)destinationPath completion:(SSHKitCompletion)completion;
+- (void)readLinkAtPath:(NSString *)path completion:(SSHKitSFTPStringCompletion)completion;
+- (void)createSymbolicLinkAtPath:(NSString *)linkPath targetPath:(NSString *)targetPath completion:(SSHKitCompletion)completion;
+- (void)openFileAtPath:(NSString *)path flags:(SSHKitSFTPFileOpenFlags)flags permissions:(uint32_t)permissions completion:(SSHKitSFTPFileHandleCompletion)completion;
+- (void)readFileAtPath:(NSString *)path completion:(SSHKitSFTPDataCompletion)completion;
+- (void)writeData:(NSData *)data toFileAtPath:(NSString *)path completion:(SSHKitCompletion)completion;
 - (void)downloadFileAtPath:(NSString *)remotePath toLocalPath:(NSString *)localPath completion:(SSHKitCompletion)completion;
+- (void)downloadFileAtPath:(NSString *)remotePath toLocalPath:(NSString *)localPath progress:(nullable SSHKitSFTPProgressHandler)progress completion:(SSHKitCompletion)completion;
+- (void)resumeDownloadFileAtPath:(NSString *)remotePath toLocalPath:(NSString *)localPath progress:(nullable SSHKitSFTPProgressHandler)progress completion:(SSHKitCompletion)completion;
 - (void)uploadFileAtPath:(NSString *)localPath toRemotePath:(NSString *)remotePath completion:(SSHKitCompletion)completion;
+- (void)uploadFileAtPath:(NSString *)localPath toRemotePath:(NSString *)remotePath progress:(nullable SSHKitSFTPProgressHandler)progress completion:(SSHKitCompletion)completion;
+- (void)resumeUploadFileAtPath:(NSString *)localPath toRemotePath:(NSString *)remotePath progress:(nullable SSHKitSFTPProgressHandler)progress completion:(SSHKitCompletion)completion;
 - (void)closeWithCompletion:(SSHKitCompletion)completion;
 
 @end

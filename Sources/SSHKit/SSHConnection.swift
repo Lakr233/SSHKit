@@ -196,7 +196,10 @@ public final class SSHConnection: @unchecked Sendable {
             }
 
             callbackQueue.async {
-                completion(.success(SFTPClient(client: client)))
+                let session = self.session
+                completion(.success(SFTPClient(client: client) {
+                    session.disconnect { _ in }
+                }))
             }
         }
     }

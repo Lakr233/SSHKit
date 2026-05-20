@@ -1,5 +1,7 @@
 #import <XCTest/XCTest.h>
 
+#import <CLibSSH/CLibSSH.h>
+
 #import "SSHCoreCancellationToken.h"
 #import "SSHCoreSessionWorker.h"
 #import "SSHCoreSocketHandle.h"
@@ -11,6 +13,13 @@
 @end
 
 @implementation SSHCoreObjCTests
+
+- (void)testCLibSSHLinksAndCreatesSession {
+    XCTAssertGreaterThan(LIBSSH_VERSION_INT, 0);
+    ssh_session session = ssh_new();
+    XCTAssertNotEqual(session, NULL);
+    ssh_free(session);
+}
 
 - (void)testWorkerAllowsDocumentedCommandLifecycle {
     SSHCoreSessionWorker *worker = [[SSHCoreSessionWorker alloc] init];

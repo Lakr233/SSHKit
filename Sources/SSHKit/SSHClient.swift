@@ -19,7 +19,7 @@ public enum SSHClient {
             }
 
             callbackQueue.async {
-                completion(.success(SSHConnection(session: session)))
+                completion(.success(SSHConnection(session: session, configuration: configuration)))
             }
         }
     }
@@ -29,7 +29,7 @@ public enum SSHClient {
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 let session = SSHKitConnection(configuration: configuration.bridgeConfiguration)
-                let connection = SSHConnection(session: session)
+                let connection = SSHConnection(session: session, configuration: configuration)
                 sessionBox.store(session)
                 session.connect { error in
                     if let error = error as NSError? {
@@ -44,6 +44,64 @@ public enum SSHClient {
 
                     sessionBox.cancelStoredSession()
                     continuation.resume(throwing: SSHKitError(code: SSHKitErrorCode.cancelled.rawValue, message: "SSH connection was cancelled."))
+                }
+            }
+        } onCancel: {
+            sessionBox.cancel()
+        }
+    }
+
+    public static func discoverAuthenticationMethods(
+        configuration: SSHClientConfiguration,
+        callbackQueue: DispatchQueue = .main,
+        completion: @escaping (Result<SSHAuthenticationDiscoveryResult, SSHKitError>) -> Void,
+    ) {
+        let session = SSHKitConnection(configuration: configuration.bridgeConfiguration)
+        session.discoverAuthenticationMethods { result, error in
+            if let error = error as NSError? {
+                callbackQueue.async {
+                    completion(.failure(SSHKitError(error)))
+                }
+                return
+            }
+
+            guard let result else {
+                callbackQueue.async {
+                    completion(.failure(SSHKitError(code: SSHKitErrorCode.unavailable.rawValue, message: "SSH authentication discovery completed without a result.")))
+                }
+                return
+            }
+
+            callbackQueue.async {
+                completion(.success(SSHAuthenticationDiscoveryResult(result)))
+            }
+        }
+    }
+
+    public static func discoverAuthenticationMethods(configuration: SSHClientConfiguration) async throws -> SSHAuthenticationDiscoveryResult {
+        let sessionBox = SSHLockedSession()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let session = SSHKitConnection(configuration: configuration.bridgeConfiguration)
+                sessionBox.store(session)
+                session.discoverAuthenticationMethods { result, error in
+                    if let error = error as NSError? {
+                        continuation.resume(throwing: SSHKitError(error))
+                        return
+                    }
+
+                    guard let result else {
+                        continuation.resume(throwing: SSHKitError(code: SSHKitErrorCode.unavailable.rawValue, message: "SSH authentication discovery completed without a result."))
+                        return
+                    }
+
+                    if sessionBox.shouldReturnConnectedSession() {
+                        continuation.resume(returning: SSHAuthenticationDiscoveryResult(result))
+                        return
+                    }
+
+                    sessionBox.cancelStoredSession()
+                    continuation.resume(throwing: SSHKitError(code: SSHKitErrorCode.cancelled.rawValue, message: "SSH authentication discovery was cancelled."))
                 }
             }
         } onCancel: {

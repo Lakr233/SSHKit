@@ -3,9 +3,19 @@ import SSHKitObjC
 
 public final class SSHConnection: @unchecked Sendable {
     private let session: SSHKitConnection
+    private let configuration: SSHClientConfiguration
 
-    init(session: SSHKitConnection) {
+    init(session: SSHKitConnection, configuration: SSHClientConfiguration) {
         self.session = session
+        self.configuration = configuration
+    }
+
+    public func diagnosticReport(
+        phase: String = "connected",
+        metadata: [String: String] = [:],
+        recentEvents: [SSHLogEvent] = [],
+    ) -> SSHDiagnosticReport {
+        configuration.diagnosticReport(phase: phase, metadata: metadata, recentEvents: recentEvents)
     }
 
     public func execute(
@@ -96,6 +106,153 @@ public final class SSHConnection: @unchecked Sendable {
 
             callbackQueue.async {
                 completion(.success(SSHShell(shell: shell)))
+            }
+        }
+    }
+
+    public func openCommand(
+        _ command: String,
+        callbackQueue: DispatchQueue = .main,
+        eventHandler: @escaping @Sendable (SSHCommandEvent) -> Void,
+        completion: @escaping (Result<SSHCommand, SSHKitError>) -> Void,
+    ) {
+        precondition(command.isEmpty == false, "Command must not be empty.")
+
+        let eventSink = SSHCommandEventSink()
+        session.openCommand(command, eventHandler: { event in
+            let commandEvent = SSHCommand.makeEvent(event)
+            eventSink.yield(commandEvent)
+            callbackQueue.async {
+                eventHandler(commandEvent)
+            }
+        }) { command, error in
+            if let error = error as NSError? {
+                eventSink.finish()
+                callbackQueue.async {
+                    completion(.failure(SSHKitError(error)))
+                }
+                return
+            }
+
+            guard let command else {
+                eventSink.finish()
+                callbackQueue.async {
+                    completion(.failure(SSHKitError(code: SSHKitErrorCode.unavailable.rawValue, message: "SSH command opened without a command object.")))
+                }
+                return
+            }
+
+            callbackQueue.async {
+                completion(.success(SSHCommand(command: command, eventSink: eventSink)))
+            }
+        }
+    }
+
+    public func openCommand(_ command: String) async throws -> SSHCommand {
+        let eventSink = SSHCommandEventSink()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                session.openCommand(command, eventHandler: { event in
+                    eventSink.yield(SSHCommand.makeEvent(event))
+                }) { command, error in
+                    if let error = error as NSError? {
+                        eventSink.finish()
+                        continuation.resume(throwing: SSHKitError(error))
+                        return
+                    }
+
+                    guard let command else {
+                        eventSink.finish()
+                        continuation.resume(throwing: SSHKitError(code: SSHKitErrorCode.unavailable.rawValue, message: "SSH command opened without a command object."))
+                        return
+                    }
+
+                    continuation.resume(returning: SSHCommand(command: command, eventSink: eventSink))
+                }
+            }
+        } onCancel: {
+            close(callbackQueue: .global()) { _ in
+            }
+        }
+    }
+
+    public func openSFTP(
+        callbackQueue: DispatchQueue = .main,
+        completion: @escaping (Result<SFTPClient, SSHKitError>) -> Void,
+    ) {
+        session.openSFTP { client, error in
+            if let error = error as NSError? {
+                callbackQueue.async {
+                    completion(.failure(SSHKitError(error)))
+                }
+                return
+            }
+
+            guard let client else {
+                callbackQueue.async {
+                    completion(.failure(SSHKitError(code: SSHKitErrorCode.unavailable.rawValue, message: "SFTP opened without a client object.")))
+                }
+                return
+            }
+
+            callbackQueue.async {
+                completion(.success(SFTPClient(client: client)))
+            }
+        }
+    }
+
+    public func openSFTP() async throws -> SFTPClient {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                openSFTP(callbackQueue: .global()) { result in
+                    continuation.resume(with: result)
+                }
+            }
+        } onCancel: {
+            close(callbackQueue: .global()) { _ in
+            }
+        }
+    }
+
+    public func openDirectTCPChannel(
+        host: String,
+        port: UInt16,
+        callbackQueue: DispatchQueue = .main,
+        completion: @escaping (Result<SSHTunnelChannel, SSHKitError>) -> Void,
+    ) {
+        precondition(host.isEmpty == false, "Direct TCP channel host must not be empty.")
+        precondition(port > 0, "Direct TCP channel port must be greater than zero.")
+
+        session.openDirectTCPChannel(toHost: host, port: port) { channel, error in
+            if let error = error as NSError? {
+                callbackQueue.async {
+                    completion(.failure(SSHKitError(error)))
+                }
+                return
+            }
+
+            guard let channel else {
+                callbackQueue.async {
+                    completion(.failure(SSHKitError(code: SSHKitErrorCode.unavailable.rawValue, message: "Direct TCP channel opened without a channel object.")))
+                }
+                return
+            }
+
+            callbackQueue.async {
+                completion(.success(SSHTunnelChannel(channel: channel)))
+            }
+        }
+    }
+
+    public func openDirectTCPChannel(host: String, port: UInt16) async throws -> SSHTunnelChannel {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                openDirectTCPChannel(host: host, port: port, callbackQueue: .global()) { result in
+                    continuation.resume(with: result)
+                }
+            }
+        } onCancel: {
+            close(callbackQueue: .global()) { _ in
             }
         }
     }

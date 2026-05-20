@@ -1,5 +1,43 @@
 #import <SSHKitObjC/SSHKitConfiguration.h>
 
+@implementation SSHKitLogEvent
+
+- (instancetype)initWithLevel:(SSHKitLogLevel)level
+                        phase:(NSString *)phase
+                      message:(NSString *)message
+                     metadata:(NSDictionary<NSString *, NSString *> *)metadata {
+    NSParameterAssert(phase.length > 0);
+    NSParameterAssert(message.length > 0);
+    NSParameterAssert(metadata != nil);
+
+    self = [super init];
+    if (self) {
+        _level = level;
+        _phase = [phase copy];
+        _message = [message copy];
+        _metadata = [metadata copy];
+        _timestamp = [NSDate date];
+    }
+    return self;
+}
+
+@end
+
+@implementation SSHKitKeyboardInteractivePrompt
+
+- (instancetype)initWithPrompt:(NSString *)prompt echo:(BOOL)echo {
+    NSParameterAssert(prompt != nil);
+
+    self = [super init];
+    if (self) {
+        _prompt = [prompt copy];
+        _echo = echo;
+    }
+    return self;
+}
+
+@end
+
 @implementation SSHKitConfiguration
 
 - (instancetype)initWithHost:(NSString *)host username:(NSString *)username {
@@ -35,9 +73,11 @@
     copy.password = self.password;
     copy.privateKeyPath = self.privateKeyPath;
     copy.privateKeyPassphrase = self.privateKeyPassphrase;
+    copy.keyboardInteractiveResponder = self.keyboardInteractiveResponder;
     copy.hostKeyPolicyKind = self.hostKeyPolicyKind;
     copy.knownHostsPath = self.knownHostsPath;
     copy.timeout = self.timeout;
+    copy.logHandler = self.logHandler;
     return copy;
 }
 

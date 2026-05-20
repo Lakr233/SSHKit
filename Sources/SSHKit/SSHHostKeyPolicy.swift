@@ -1,6 +1,15 @@
 import Foundation
 
 public enum SSHHostKeyPolicy: Equatable, Sendable {
-    case acceptAnyVerifiedHostKey
+    case insecureAcceptAnyHostKey
     case knownHostsFile(String)
+
+    var diagnosticName: String {
+        switch self {
+        case .insecureAcceptAnyHostKey:
+            "insecureAcceptAnyHostKey"
+        case .knownHostsFile:
+            "knownHostsFile"
+        }
+    }
 }

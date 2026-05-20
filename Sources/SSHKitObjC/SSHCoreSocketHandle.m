@@ -37,7 +37,9 @@
     if (fileDescriptor >= 0) {
         int result = shutdown(fileDescriptor, SHUT_RDWR);
         if (result != 0 && errno != ENOTCONN && errno != EBADF) {
+#ifdef DEBUG
             NSLog(@"SSHCoreSocketHandle shutdown failed for fd %d: %d", fileDescriptor, errno);
+#endif
         }
     }
     [self.lock unlock];

@@ -1,12 +1,12 @@
-import Testing
 @testable import SSHKit
+import Testing
 
-@Test func configurationKeepsConnectionInputs() {
+@Test func `configuration keeps connection inputs`() {
     let configuration = SSHClientConfiguration(
         host: "example.com",
         username: "user",
         authentication: .password("secret"),
-        hostKeyPolicy: .knownHostsFile("/tmp/known_hosts")
+        hostKeyPolicy: .knownHostsFile("/tmp/known_hosts"),
     )
 
     #expect(configuration.host == "example.com")

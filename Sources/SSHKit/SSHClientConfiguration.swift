@@ -14,7 +14,7 @@ public struct SSHClientConfiguration: Equatable {
         username: String,
         authentication: SSHAuthentication,
         hostKeyPolicy: SSHHostKeyPolicy,
-        timeout: TimeInterval = 30
+        timeout: TimeInterval = 30,
     ) {
         self.host = host
         self.port = port

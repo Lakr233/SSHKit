@@ -5,10 +5,10 @@ import PackageDescription
 let package = Package(
     name: "SSHKit",
     platforms: [
-        .iOS(.v16),
-        .macOS(.v13),
-        .macCatalyst(.v16),
-        .tvOS(.v16),
+        .iOS(.v13),
+        .macOS(.v10_15),
+        .macCatalyst(.v13),
+        .tvOS(.v13),
         .visionOS(.v1),
     ],
     products: [
@@ -18,6 +18,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/Lakr233/openssl-spm.git", from: "3.6.0"),
+        .package(url: "https://github.com/kishikawakatsumi/KeychainAccess.git", from: "4.2.2"),
     ],
     targets: [
         .target(
@@ -28,30 +29,48 @@ let package = Package(
             path: "Sources/CLibSSH",
             publicHeadersPath: "include",
             cSettings: [
-                .define("SSHKit_CLibSSH_PLACEHOLDER", to: "1"),
+                .define("SSHKIT_CLIBSSH_PLACEHOLDER", to: "1"),
             ],
             linkerSettings: [
                 .linkedLibrary("z"),
-            ]
+            ],
         ),
         .target(
             name: "SSHKitObjC",
             dependencies: ["CLibSSH"],
             path: "Sources/SSHKitObjC",
-            publicHeadersPath: "include"
+            publicHeadersPath: "include",
+            cSettings: [
+                .headerSearchPath("Private"),
+            ],
         ),
         .target(
             name: "SSHKit",
-            dependencies: ["SSHKitObjC"],
+            dependencies: [
+                "SSHKitObjC",
+                .product(name: "KeychainAccess", package: "KeychainAccess"),
+            ],
             path: "Sources/SSHKit",
             swiftSettings: [
                 .swiftLanguageMode(.v5),
-            ]
+            ],
+        ),
+        .testTarget(
+            name: "SSHCoreObjCTests",
+            dependencies: ["SSHKitObjC"],
+            path: "Tests/SSHCoreObjCTests",
+            cSettings: [
+                .headerSearchPath("../../Sources/SSHKitObjC/Private"),
+            ],
         ),
         .testTarget(
             name: "SSHKitTests",
-            dependencies: ["SSHKit"]
+            dependencies: ["SSHKit"],
+        ),
+        .testTarget(
+            name: "LiveSSHTests",
+            dependencies: ["SSHKit"],
         ),
     ],
-    cLanguageStandard: .c11
+    cLanguageStandard: .c11,
 )

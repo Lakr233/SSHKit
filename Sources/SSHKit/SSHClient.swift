@@ -1,13 +1,13 @@
 import Foundation
 import SSHKitObjC
 
-public final class SSHClient {
+public enum SSHClient {
     public static func connect(
         configuration: SSHClientConfiguration,
         callbackQueue: DispatchQueue = .main,
-        completion: @escaping (Result<SSHConnection, SSHKitError>) -> Void
+        completion: @escaping (Result<SSHConnection, SSHKitError>) -> Void,
     ) {
-        let session = GSSHSession(configuration: configuration.bridgeConfiguration)
+        let session = SSHKitConnection(configuration: configuration.bridgeConfiguration)
         session.connect { error in
             if let error = error as NSError? {
                 callbackQueue.async {

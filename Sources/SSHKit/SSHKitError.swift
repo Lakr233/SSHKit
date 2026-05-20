@@ -1,6 +1,14 @@
 import Foundation
 
-public struct SSHKitError: Error, Equatable, LocalizedError {
+public enum SSHKitErrorCode: Int, Sendable {
+    case unavailable = 1
+    case invalidState = 2
+    case connectionFailed = 3
+    case authenticationFailed = 4
+    case commandFailed = 5
+}
+
+public struct SSHKitError: Error, Equatable, LocalizedError, Sendable {
     public var code: Int
     public var message: String
 
@@ -14,7 +22,7 @@ public struct SSHKitError: Error, Equatable, LocalizedError {
     }
 
     init(_ error: NSError) {
-        self.code = error.code
-        self.message = error.localizedDescription
+        code = error.code
+        message = error.localizedDescription
     }
 }

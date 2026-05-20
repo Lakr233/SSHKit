@@ -2,16 +2,16 @@ import Foundation
 import SSHKitObjC
 
 public final class SSHConnection {
-    private let session: GSSHSession
+    private let session: SSHKitConnection
 
-    init(session: GSSHSession) {
+    init(session: SSHKitConnection) {
         self.session = session
     }
 
     public func execute(
         _ command: String,
         callbackQueue: DispatchQueue = .main,
-        completion: @escaping (Result<SSHCommandResult, SSHKitError>) -> Void
+        completion: @escaping (Result<SSHCommandResult, SSHKitError>) -> Void,
     ) {
         session.executeCommand(command) { result, error in
             if let error = error as NSError? {
@@ -23,7 +23,7 @@ public final class SSHConnection {
 
             guard let result else {
                 callbackQueue.async {
-                    completion(.failure(SSHKitError(code: 0, message: "SSH command completed without a result.")))
+                    completion(.failure(SSHKitError(code: SSHKitErrorCode.unavailable.rawValue, message: "SSH command completed without a result.")))
                 }
                 return
             }
@@ -31,7 +31,7 @@ public final class SSHConnection {
             let commandResult = SSHCommandResult(
                 standardOutput: result.standardOutput,
                 standardError: result.standardError,
-                exitStatus: result.exitStatus
+                exitStatus: result.exitStatus,
             )
             callbackQueue.async {
                 completion(.success(commandResult))
@@ -41,7 +41,7 @@ public final class SSHConnection {
 
     public func close(
         callbackQueue: DispatchQueue = .main,
-        completion: @escaping (Result<Void, SSHKitError>) -> Void
+        completion: @escaping (Result<Void, SSHKitError>) -> Void,
     ) {
         session.disconnect { error in
             if let error = error as NSError? {

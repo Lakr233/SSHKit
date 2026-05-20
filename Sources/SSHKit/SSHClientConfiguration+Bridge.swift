@@ -2,8 +2,8 @@ import Foundation
 import SSHKitObjC
 
 extension SSHClientConfiguration {
-    var bridgeConfiguration: GSSHSessionConfiguration {
-        let configuration = GSSHSessionConfiguration(host: host, username: username)
+    var bridgeConfiguration: SSHKitConfiguration {
+        let configuration = SSHKitConfiguration(host: host, username: username)
         configuration.port = port
         configuration.timeout = timeout
 

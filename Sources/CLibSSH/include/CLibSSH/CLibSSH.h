@@ -1,3 +1,5 @@
 #pragma once
 
+#ifndef SSHKIT_CLIBSSH_PLACEHOLDER
 #define SSHKIT_CLIBSSH_PLACEHOLDER 1
+#endif

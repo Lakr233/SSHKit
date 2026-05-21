@@ -52,6 +52,14 @@ The server should support:
 
 The live suite also mutates the supplied known-hosts entry to verify host-key mismatch failures, and it starts local loopback proxy/listener processes only as route fixtures while keeping the SSH server target on the external fixture host.
 
+Run the full live gate with:
+
+```sh
+Script/test-live-fixture.sh
+```
+
+The live gate requires every live test to run. If SwiftPM reports a skipped live test, the script exits with status `65`.
+
 The smoke command used by the current live tests is:
 
 ```sh

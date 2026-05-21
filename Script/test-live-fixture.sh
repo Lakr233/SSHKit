@@ -65,4 +65,12 @@ for tool in /usr/bin/ssh-agent /usr/bin/ssh-add; do
   fi
 done
 
-swift test --filter LiveSSHTests
+test_output="$(mktemp -t sshkit-live-tests.XXXXXX)"
+trap 'rm -f "${test_output}"' EXIT
+
+swift test --filter LiveSSHTests 2>&1 | tee "${test_output}"
+
+if grep -E "Test Case '.*' skipped|tests skipped|Test \".*\" skipped" "${test_output}" >/dev/null; then
+  printf 'Live SSH fixture run completed with skipped tests; all live tests must run against the external fixture hosts.\n' >&2
+  exit 65
+fi

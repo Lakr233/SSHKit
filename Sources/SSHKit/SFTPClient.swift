@@ -492,50 +492,26 @@ public final class SFTPClient: @unchecked Sendable {
     }
 
     public func download(remotePath: String, to localURL: URL, progress: (@Sendable (UInt64, UInt64) -> Void)? = nil) async throws {
-        try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                download(remotePath: remotePath, to: localURL, progress: progress, callbackQueue: .global()) { result in
-                    continuation.resume(with: result)
-                }
-            }
-        } onCancel: {
-            cancelConnection()
+        try await withCancellation { completion in
+            download(remotePath: remotePath, to: localURL, progress: progress, callbackQueue: .global(), completion: completion)
         }
     }
 
     public func upload(localURL: URL, to remotePath: String, progress: (@Sendable (UInt64, UInt64) -> Void)? = nil) async throws {
-        try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                upload(localURL: localURL, to: remotePath, progress: progress, callbackQueue: .global()) { result in
-                    continuation.resume(with: result)
-                }
-            }
-        } onCancel: {
-            cancelConnection()
+        try await withCancellation { completion in
+            upload(localURL: localURL, to: remotePath, progress: progress, callbackQueue: .global(), completion: completion)
         }
     }
 
     public func resumeDownload(remotePath: String, to localURL: URL, progress: (@Sendable (UInt64, UInt64) -> Void)? = nil) async throws {
-        try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                resumeDownload(remotePath: remotePath, to: localURL, progress: progress, callbackQueue: .global()) { result in
-                    continuation.resume(with: result)
-                }
-            }
-        } onCancel: {
-            cancelConnection()
+        try await withCancellation { completion in
+            resumeDownload(remotePath: remotePath, to: localURL, progress: progress, callbackQueue: .global(), completion: completion)
         }
     }
 
     public func resumeUpload(localURL: URL, to remotePath: String, progress: (@Sendable (UInt64, UInt64) -> Void)? = nil) async throws {
-        try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                resumeUpload(localURL: localURL, to: remotePath, progress: progress, callbackQueue: .global()) { result in
-                    continuation.resume(with: result)
-                }
-            }
-        } onCancel: {
-            cancelConnection()
+        try await withCancellation { completion in
+            resumeUpload(localURL: localURL, to: remotePath, progress: progress, callbackQueue: .global(), completion: completion)
         }
     }
 
@@ -620,14 +596,20 @@ public final class SFTPClient: @unchecked Sendable {
     private func withCancellation<Value>(
         _ operation: (@escaping (Result<Value, SSHKitError>) -> Void) -> Void,
     ) async throws -> Value {
-        try await withTaskCancellationHandler {
+        let cancellation = SSHAsyncCancellationBox()
+        return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 operation { result in
+                    guard let result = cancellation.complete(result) else {
+                        return
+                    }
                     continuation.resume(with: result)
                 }
             }
         } onCancel: {
-            cancelConnection()
+            cancellation.cancel {
+                cancelConnection()
+            }
         }
     }
 }

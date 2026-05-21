@@ -35,14 +35,20 @@ public final class SSHShell: @unchecked Sendable {
     }
 
     public func write(_ data: Data) async throws {
+        let cancellation = SSHAsyncCancellationBox()
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 write(data, callbackQueue: .global()) { result in
+                    guard let result = cancellation.complete(result) else {
+                        return
+                    }
                     continuation.resume(with: result)
                 }
             }
         } onCancel: {
-            close(callbackQueue: .global()) { _ in
+            cancellation.cancel {
+                close(callbackQueue: .global()) { _ in
+                }
             }
         }
     }

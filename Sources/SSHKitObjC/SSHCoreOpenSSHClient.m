@@ -231,6 +231,16 @@ static void SSHCoreShutdownDescriptor(int fileDescriptor) {
     shutdown(fileDescriptor, SHUT_RDWR);
 }
 
+static void SSHCoreFreeForwardChannel(ssh_channel channel) {
+    if (channel == NULL) {
+        return;
+    }
+
+    ssh_channel_send_eof(channel);
+    ssh_channel_close(channel);
+    ssh_channel_free(channel);
+}
+
 static NSString *SSHCoreStringFromCString(const char *string) {
     return string != NULL ? [NSString stringWithUTF8String:string] : @"";
 }
@@ -1088,6 +1098,10 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
 }
 
 - (void)acceptLoopOnWorkerQueue {
+    [self.client emitLogLevel:SSHKitLogLevelDebug
+                        phase:@"tunnel"
+                      message:@"SSH local forward worker loop started."
+                     metadata:[self diagnosticMetadata]];
     while (![self isClosed]) {
         fd_set readSet;
         FD_ZERO(&readSet);
@@ -1132,6 +1146,10 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
         }
 
         [self setActiveSocket:clientSocket];
+        [self.client emitLogLevel:SSHKitLogLevelDebug
+                            phase:@"tunnel"
+                          message:@"SSH local forward accepted client socket."
+                         metadata:[self diagnosticMetadataWithAdditional:@{@"clientSocket": [NSString stringWithFormat:@"%d", clientSocket]}]];
         NSString *targetHost = self.targetHost;
         uint16_t targetPort = self.targetPort;
         BOOL isDynamicRequest = targetHost == nil;
@@ -1147,10 +1165,26 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
             if (isDynamicRequest) {
                 [self sendSOCKSReply:0x00 toSocket:clientSocket];
             }
+            [self.client emitLogLevel:SSHKitLogLevelDebug
+                                phase:@"tunnel"
+                              message:@"SSH local forward bridge started."
+                             metadata:[self diagnosticMetadataWithAdditional:@{@"targetHost": targetHost,
+                                                                               @"targetPort": [NSString stringWithFormat:@"%hu", targetPort]}]];
             [self bridgeClientSocket:clientSocket channel:channel];
-            ssh_channel_send_eof(channel);
-            ssh_channel_close(channel);
-            ssh_channel_free(channel);
+            [self.client emitLogLevel:SSHKitLogLevelDebug
+                                phase:@"tunnel"
+                              message:@"SSH local forward bridge finished."
+                             metadata:[self diagnosticMetadataWithAdditional:@{@"targetHost": targetHost,
+                                                                               @"targetPort": [NSString stringWithFormat:@"%hu", targetPort]}]];
+            [self.client emitLogLevel:SSHKitLogLevelDebug
+                                phase:@"tunnel"
+                              message:@"SSH local forward channel free started."
+                             metadata:[self diagnosticMetadata]];
+            SSHCoreFreeForwardChannel(channel);
+            [self.client emitLogLevel:SSHKitLogLevelDebug
+                                phase:@"tunnel"
+                              message:@"SSH local forward channel free finished."
+                             metadata:[self diagnosticMetadata]];
         } else if (isDynamicRequest) {
             [self sendSOCKSReply:0x05 toSocket:clientSocket];
         }
@@ -1158,6 +1192,10 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
         [self setActiveSocket:-1];
     }
 
+    [self.client emitLogLevel:SSHKitLogLevelDebug
+                        phase:@"tunnel"
+                      message:@"SSH local forward worker loop exiting."
+                     metadata:[self diagnosticMetadata]];
     [self invalidateOnWorkerQueue];
     [self callCloseHandlerIfNeeded];
     [self completePendingCloseCompletions];
@@ -1448,20 +1486,37 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
     [self.closeCompletions addObject:[completion copy]];
     [self.lock unlock];
 
+    [self.client emitLogLevel:SSHKitLogLevelInfo
+                        phase:@"tunnel"
+                      message:@"SSH local forward close requested."
+                     metadata:[self diagnosticMetadataWithAdditional:@{@"activeSocket": [NSString stringWithFormat:@"%d", activeSocket]}]];
     SSHCoreShutdownDescriptor(activeSocket);
+    [self.client emitLogLevel:SSHKitLogLevelDebug
+                        phase:@"tunnel"
+                      message:@"SSH local forward active socket shutdown requested."
+                     metadata:[self diagnosticMetadataWithAdditional:@{@"activeSocket": [NSString stringWithFormat:@"%d", activeSocket]}]];
 }
 
 - (void)invalidateOnWorkerQueue {
     [self.lock lock];
     self.closed = YES;
     int listenerSocket = self.listenerSocket;
-    self.listenerSocket = -1;
+    _listenerSocket = -1;
     int activeSocket = self.activeSocket;
-    self.activeSocket = -1;
+    _activeSocket = -1;
     [self.lock unlock];
 
+    [self.client emitLogLevel:SSHKitLogLevelDebug
+                        phase:@"tunnel"
+                      message:@"SSH local forward invalidate started."
+                     metadata:[self diagnosticMetadataWithAdditional:@{@"listenerSocket": [NSString stringWithFormat:@"%d", listenerSocket],
+                                                                       @"activeSocket": [NSString stringWithFormat:@"%d", activeSocket]}]];
     SSHCoreCloseDescriptor(&listenerSocket);
     SSHCoreCloseDescriptor(&activeSocket);
+    [self.client emitLogLevel:SSHKitLogLevelDebug
+                        phase:@"tunnel"
+                      message:@"SSH local forward invalidate finished."
+                     metadata:[self diagnosticMetadata]];
 }
 
 - (void)callCloseHandlerIfNeeded {
@@ -1481,9 +1536,29 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
     [self.closeCompletions removeAllObjects];
     [self.lock unlock];
 
+    [self.client emitLogLevel:SSHKitLogLevelDebug
+                        phase:@"tunnel"
+                      message:@"SSH local forward close completions started."
+                     metadata:[self diagnosticMetadataWithAdditional:@{@"completionCount": [NSString stringWithFormat:@"%lu", (unsigned long)completions.count]}]];
     for (SSHKitCompletion completion in completions) {
         completion(nil);
     }
+}
+
+- (NSDictionary<NSString *, NSString *> *)diagnosticMetadata {
+    return [self diagnosticMetadataWithAdditional:@{}];
+}
+
+- (NSDictionary<NSString *, NSString *> *)diagnosticMetadataWithAdditional:(NSDictionary<NSString *, NSString *> *)additional {
+    NSMutableDictionary<NSString *, NSString *> *metadata = [@{
+        @"forwardType": self.targetHost == nil ? @"dynamic" : @"local",
+        @"boundHost": self.boundHost,
+        @"boundPort": [NSString stringWithFormat:@"%hu", self.boundPort],
+        @"configuredTargetHost": self.targetHost ?: @"",
+        @"configuredTargetPort": [NSString stringWithFormat:@"%hu", self.targetPort],
+    } mutableCopy];
+    [metadata addEntriesFromDictionary:additional];
+    return metadata;
 }
 
 - (void)dealloc {
@@ -1525,6 +1600,10 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
 }
 
 - (void)start {
+    [self.client emitLogLevel:SSHKitLogLevelDebug
+                        phase:@"tunnel"
+                      message:@"SSH remote forward worker loop started."
+                     metadata:[self diagnosticMetadata]];
     while (![self isClosed]) {
         int destinationPort = 0;
         ssh_channel channel = ssh_channel_accept_forward(self.session, 100, &destinationPort);
@@ -1532,10 +1611,22 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
             continue;
         }
 
+        [self.client emitLogLevel:SSHKitLogLevelDebug
+                            phase:@"tunnel"
+                          message:@"SSH remote forward accepted channel."
+                         metadata:[self diagnosticMetadataWithAdditional:@{@"destinationPort": [NSString stringWithFormat:@"%d", destinationPort]}]];
         int localSocket = [self openTargetSocket];
         if (localSocket >= 0) {
             [self setActiveSocket:localSocket];
+            [self.client emitLogLevel:SSHKitLogLevelDebug
+                                phase:@"tunnel"
+                              message:@"SSH remote forward bridge started."
+                             metadata:[self diagnosticMetadataWithAdditional:@{@"localSocket": [NSString stringWithFormat:@"%d", localSocket]}]];
             [self bridgeLocalSocket:localSocket channel:channel];
+            [self.client emitLogLevel:SSHKitLogLevelDebug
+                                phase:@"tunnel"
+                              message:@"SSH remote forward bridge finished."
+                             metadata:[self diagnosticMetadataWithAdditional:@{@"localSocket": [NSString stringWithFormat:@"%d", localSocket]}]];
             SSHCoreCloseDescriptor(&localSocket);
             [self setActiveSocket:-1];
         } else {
@@ -1545,11 +1636,21 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
                              metadata:@{@"targetHost": self.targetHost,
                                         @"targetPort": [NSString stringWithFormat:@"%hu", self.targetPort]}];
         }
-        ssh_channel_send_eof(channel);
-        ssh_channel_close(channel);
-        ssh_channel_free(channel);
+        [self.client emitLogLevel:SSHKitLogLevelDebug
+                            phase:@"tunnel"
+                          message:@"SSH remote forward channel free started."
+                         metadata:[self diagnosticMetadata]];
+        SSHCoreFreeForwardChannel(channel);
+        [self.client emitLogLevel:SSHKitLogLevelDebug
+                            phase:@"tunnel"
+                          message:@"SSH remote forward channel free finished."
+                         metadata:[self diagnosticMetadata]];
     }
 
+    [self.client emitLogLevel:SSHKitLogLevelDebug
+                        phase:@"tunnel"
+                      message:@"SSH remote forward worker loop exiting."
+                     metadata:[self diagnosticMetadata]];
     [self invalidateOnWorkerQueue];
     [self callCloseHandlerIfNeeded];
     [self completePendingCloseCompletions];
@@ -1671,22 +1772,39 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
     [self.closeCompletions addObject:[completion copy]];
     [self.lock unlock];
 
+    [self.client emitLogLevel:SSHKitLogLevelInfo
+                        phase:@"tunnel"
+                      message:@"SSH remote forward close requested."
+                     metadata:[self diagnosticMetadataWithAdditional:@{@"activeSocket": [NSString stringWithFormat:@"%d", activeSocket]}]];
     SSHCoreShutdownDescriptor(activeSocket);
+    [self.client emitLogLevel:SSHKitLogLevelDebug
+                        phase:@"tunnel"
+                      message:@"SSH remote forward active socket shutdown requested."
+                     metadata:[self diagnosticMetadataWithAdditional:@{@"activeSocket": [NSString stringWithFormat:@"%d", activeSocket]}]];
 }
 
 - (void)invalidateOnWorkerQueue {
     [self.lock lock];
     self.closed = YES;
     int activeSocket = self.activeSocket;
-    self.activeSocket = -1;
+    _activeSocket = -1;
     BOOL shouldCancelRemoteForward = !self.didCancelRemoteForward;
     self.didCancelRemoteForward = YES;
     [self.lock unlock];
 
+    [self.client emitLogLevel:SSHKitLogLevelDebug
+                        phase:@"tunnel"
+                      message:@"SSH remote forward invalidate started."
+                     metadata:[self diagnosticMetadataWithAdditional:@{@"activeSocket": [NSString stringWithFormat:@"%d", activeSocket],
+                                                                       @"cancelRemoteForward": shouldCancelRemoteForward ? @"true" : @"false"}]];
     SSHCoreCloseDescriptor(&activeSocket);
     if (shouldCancelRemoteForward) {
         ssh_forward_cancel(self.session, self.remoteHost.UTF8String, self.boundPort);
     }
+    [self.client emitLogLevel:SSHKitLogLevelDebug
+                        phase:@"tunnel"
+                      message:@"SSH remote forward invalidate finished."
+                     metadata:[self diagnosticMetadata]];
 }
 
 - (void)callCloseHandlerIfNeeded {
@@ -1706,9 +1824,30 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
     [self.closeCompletions removeAllObjects];
     [self.lock unlock];
 
+    [self.client emitLogLevel:SSHKitLogLevelDebug
+                        phase:@"tunnel"
+                      message:@"SSH remote forward close completions started."
+                     metadata:[self diagnosticMetadataWithAdditional:@{@"completionCount": [NSString stringWithFormat:@"%lu", (unsigned long)completions.count]}]];
     for (SSHKitCompletion completion in completions) {
         completion(nil);
     }
+}
+
+- (NSDictionary<NSString *, NSString *> *)diagnosticMetadata {
+    return [self diagnosticMetadataWithAdditional:@{}];
+}
+
+- (NSDictionary<NSString *, NSString *> *)diagnosticMetadataWithAdditional:(NSDictionary<NSString *, NSString *> *)additional {
+    NSMutableDictionary<NSString *, NSString *> *metadata = [@{
+        @"forwardType": @"remote",
+        @"remoteHost": self.remoteHost,
+        @"remotePort": [NSString stringWithFormat:@"%hu", self.remotePort],
+        @"boundPort": [NSString stringWithFormat:@"%hu", self.boundPort],
+        @"targetHost": self.targetHost ?: @"",
+        @"targetPort": [NSString stringWithFormat:@"%hu", self.targetPort],
+    } mutableCopy];
+    [metadata addEntriesFromDictionary:additional];
+    return metadata;
 }
 
 @end
@@ -3083,12 +3222,12 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
 #pragma clang diagnostic pop
 
 - (void)cancelCurrentTask {
-    SSHCoreSessionState workerState = self.worker.state;
+    SSHCoreSocketHandle *socketHandle = self.worker.socketHandle;
     [self.taskLock lock];
     id taskObject = self.currentTask;
     ssh_session session = self.session;
-    BOOL shouldShutdownSocket = taskObject != nil || [self.worker isActiveJobState:workerState];
-    if (taskObject || session != NULL) {
+    BOOL shouldShutdownSocket = taskObject != nil || session != NULL || socketHandle != nil;
+    if (shouldShutdownSocket) {
         self.taskCancelled = YES;
     }
     [self.taskLock unlock];
@@ -3100,7 +3239,7 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
         });
     }
     if (shouldShutdownSocket) {
-        [self.worker.socketHandle shutdownNow];
+        [socketHandle shutdownNow];
     }
 }
 
@@ -3693,13 +3832,22 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
     uint8_t *cursor = buffer;
     NSUInteger remaining = length;
     while (remaining > 0) {
+        if ([self isTaskCancelled]) {
+            if (error) {
+                *error = SSHKitMakeError(SSHKitErrorCodeCancelled, @"Proxy route socket read was cancelled.");
+            }
+            return NO;
+        }
+
         ssize_t bytesRead = read(socket, cursor, remaining);
         if (bytesRead < 0 && errno == EINTR) {
             continue;
         }
         if (bytesRead <= 0) {
             if (error) {
-                *error = SSHKitMakeError(SSHKitErrorCodeConnectionFailed, [NSString stringWithFormat:@"Proxy route socket read failed: %s", strerror(errno)]);
+                *error = [self isTaskCancelled]
+                    ? SSHKitMakeError(SSHKitErrorCodeCancelled, @"Proxy route socket read was cancelled.")
+                    : SSHKitMakeError(SSHKitErrorCodeConnectionFailed, [NSString stringWithFormat:@"Proxy route socket read failed: %s", strerror(errno)]);
             }
             return NO;
         }
@@ -3712,13 +3860,22 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
 - (BOOL)writeBytes:(const char *)bytes length:(size_t)length toProxySocket:(int)socket error:(NSError **)error {
     size_t offset = 0;
     while (offset < length) {
+        if ([self isTaskCancelled]) {
+            if (error) {
+                *error = SSHKitMakeError(SSHKitErrorCodeCancelled, @"Proxy route socket write was cancelled.");
+            }
+            return NO;
+        }
+
         ssize_t written = write(socket, bytes + offset, length - offset);
         if (written < 0 && errno == EINTR) {
             continue;
         }
         if (written <= 0) {
             if (error) {
-                *error = SSHKitMakeError(SSHKitErrorCodeConnectionFailed, [NSString stringWithFormat:@"Proxy route socket write failed: %s", strerror(errno)]);
+                *error = [self isTaskCancelled]
+                    ? SSHKitMakeError(SSHKitErrorCodeCancelled, @"Proxy route socket write was cancelled.")
+                    : SSHKitMakeError(SSHKitErrorCodeConnectionFailed, [NSString stringWithFormat:@"Proxy route socket write failed: %s", strerror(errno)]);
             }
             return NO;
         }

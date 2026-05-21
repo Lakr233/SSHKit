@@ -173,11 +173,10 @@ private final class TemporarySSHAgent {
     private let processIdentifier: String
 
     init() throws {
-        directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("SSHKitAgentLiveTests")
-            .appendingPathComponent(UUID().uuidString)
+        directory = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("sshkit-agent-\(UUID().uuidString.prefix(8))")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        socketPath = directory.appendingPathComponent("agent.sock").path
+        socketPath = directory.appendingPathComponent("a.sock").path
         let output = try Self.run("/usr/bin/ssh-agent", arguments: ["-a", socketPath, "-s"], environment: ProcessInfo.processInfo.environment)
         processIdentifier = try Self.parseAgentPID(output)
     }

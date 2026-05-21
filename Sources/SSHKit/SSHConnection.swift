@@ -446,14 +446,20 @@ public final class SSHConnection: @unchecked Sendable {
     }
 
     public func execute(_ command: String) async throws -> SSHCommandResult {
-        try await withTaskCancellationHandler {
+        let cancellation = SSHAsyncCancellationBox()
+        return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 execute(command, callbackQueue: .global()) { result in
+                    guard let result = cancellation.complete(result) else {
+                        return
+                    }
                     continuation.resume(with: result)
                 }
             }
         } onCancel: {
-            close(callbackQueue: .global()) { _ in
+            cancellation.cancel {
+                close(callbackQueue: .global()) { _ in
+                }
             }
         }
     }

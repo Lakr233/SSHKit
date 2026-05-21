@@ -2,6 +2,10 @@ import Foundation
 import SSHKit
 import XCTest
 
+#if canImport(Darwin)
+    import Darwin
+#endif
+
 enum LiveSSHLog {
     private static let lock = NSLock()
 
@@ -18,18 +22,118 @@ enum LiveSSHLog {
     static func fixture(_ name: String, host: String, port: UInt16, username: String) {
         event("fixture=\(name) host=\(host) port=\(port) username=\(username)")
     }
+
+    static func core(_ event: SSHLogEvent) {
+        let redacted = event.redacted
+        let metadata = redacted.metadata
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key)=\($0.value)" }
+            .joined(separator: " ")
+        Self.event("core level=\(redacted.level.liveDiagnosticName) phase=\(redacted.phase) message=\"\(redacted.message)\" metadata={\(metadata)}")
+    }
+}
+
+private final class LiveSSHFixtureRunLock {
+    #if canImport(Darwin)
+        private var fileDescriptor: Int32 = -1
+
+        func lock(testName: String) throws {
+            let path = FileManager.default.temporaryDirectory
+                .appendingPathComponent("sshkit-live-fixture.lock")
+                .path
+
+            let descriptor = open(path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH)
+            guard descriptor >= 0 else {
+                throw Self.posixError(description: "Open live fixture lock failed")
+            }
+
+            LiveSSHLog.event("fixture lock wait \(testName)")
+            guard flock(descriptor, LOCK_EX) == 0 else {
+                let error = Self.posixError(description: "Acquire live fixture lock failed")
+                Darwin.close(descriptor)
+                throw error
+            }
+
+            fileDescriptor = descriptor
+            LiveSSHLog.event("fixture lock acquired \(testName)")
+        }
+
+        func unlock(testName: String) {
+            guard fileDescriptor >= 0 else {
+                return
+            }
+
+            LiveSSHLog.event("fixture lock release \(testName)")
+            flock(fileDescriptor, LOCK_UN)
+            Darwin.close(fileDescriptor)
+            fileDescriptor = -1
+        }
+
+        private static func posixError(description: String) -> NSError {
+            let code = errno
+            return NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(code),
+                userInfo: [NSLocalizedDescriptionKey: "\(description): \(String(cString: strerror(code)))"],
+            )
+        }
+    #else
+        private static let processLock = NSLock()
+        private var isLocked = false
+
+        func lock(testName: String) throws {
+            LiveSSHLog.event("fixture lock wait \(testName)")
+            Self.processLock.lock()
+            isLocked = true
+            LiveSSHLog.event("fixture lock acquired \(testName)")
+        }
+
+        func unlock(testName: String) {
+            guard isLocked else {
+                return
+            }
+
+            LiveSSHLog.event("fixture lock release \(testName)")
+            isLocked = false
+            Self.processLock.unlock()
+        }
+    #endif
+}
+
+private extension SSHLogLevel {
+    var liveDiagnosticName: String {
+        switch self {
+        case .debug:
+            "debug"
+        case .info:
+            "info"
+        case .warning:
+            "warning"
+        case .error:
+            "error"
+        }
+    }
 }
 
 class LiveSSHTestCase: XCTestCase {
+    private var liveFixtureRunLock: LiveSSHFixtureRunLock?
+
     override func setUpWithError() throws {
         try super.setUpWithError()
         LiveSSHLog.event("START \(name)")
+        if ProcessInfo.processInfo.environment["SSHKIT_RUN_LIVE_TESTS"] == "1" {
+            let runLock = LiveSSHFixtureRunLock()
+            try runLock.lock(testName: name)
+            liveFixtureRunLock = runLock
+        }
     }
 
     override func tearDownWithError() throws {
         defer {
             LiveSSHLog.event("END \(name)")
         }
+        liveFixtureRunLock?.unlock(testName: name)
+        liveFixtureRunLock = nil
         try super.tearDownWithError()
     }
 
@@ -44,7 +148,7 @@ class LiveSSHTestCase: XCTestCase {
         _ message: String,
     ) throws {
         guard condition else {
-            throw LiveSSHFixtureError.missingCapability(message)
+            throw XCTSkip(message)
         }
     }
 
@@ -59,7 +163,10 @@ class LiveSSHTestCase: XCTestCase {
             username: fixture.username,
             authentication: authentication,
             hostKeyPolicy: .knownHostsFile(knownHostsPath),
-            timeout: 10,
+            timeout: 20,
+            logHandler: { event in
+                LiveSSHLog.core(event)
+            },
         )
 
         let expectation = expectation(description: "Connect to Alpine SSH fixture")
@@ -74,7 +181,7 @@ class LiveSSHTestCase: XCTestCase {
             expectation.fulfill()
         }
 
-        wait(for: [expectation], timeout: 15)
+        wait(for: [expectation], timeout: 25)
         return try XCTUnwrap(connectionResult).get()
     }
 
@@ -524,6 +631,7 @@ struct DropbearSSHFixture {
     var knownHostsEntry: String
 
     init() throws {
+        try Self.skipUnlessConfigured()
         host = try Self.requiredEnvironmentValue("SSHKIT_DROPBEAR_HOST")
         try requireExternalFixtureHost(host)
         port = try UInt16(Self.requiredEnvironmentValue("SSHKIT_DROPBEAR_PORT")).unwrap("SSHKIT_DROPBEAR_PORT must be a valid UInt16.")
@@ -531,6 +639,22 @@ struct DropbearSSHFixture {
         password = try Self.requiredEnvironmentValue("SSHKIT_DROPBEAR_PASSWORD")
         knownHostsEntry = try Self.requiredEnvironmentValue("SSHKIT_DROPBEAR_KNOWN_HOSTS")
         LiveSSHLog.fixture("dropbear", host: host, port: port, username: username)
+    }
+
+    private static func skipUnlessConfigured() throws {
+        let requiredNames = [
+            "SSHKIT_DROPBEAR_HOST",
+            "SSHKIT_DROPBEAR_PORT",
+            "SSHKIT_DROPBEAR_USERNAME",
+            "SSHKIT_DROPBEAR_PASSWORD",
+            "SSHKIT_DROPBEAR_KNOWN_HOSTS",
+        ]
+        let missingNames = requiredNames.filter { name in
+            ProcessInfo.processInfo.environment[name]?.isEmpty != false
+        }
+        guard missingNames.isEmpty else {
+            throw XCTSkip("Set \(missingNames.joined(separator: ", ")) to run Dropbear live fixture tests.")
+        }
     }
 
     private static func requiredEnvironmentValue(_ name: String) throws -> String {

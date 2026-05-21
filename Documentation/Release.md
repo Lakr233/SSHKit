@@ -18,6 +18,8 @@ Run live fixture tests with the external fixture environment described in `Docum
 Script/test-live-fixture.sh
 ```
 
+The live fixture script exits with status 64 when required `SSHKIT_*` variables are missing or when `SSHKIT_LIVE_HOST` points at a loopback host.
+
 ## Packaging
 
 Create release artifacts from the commit being released:

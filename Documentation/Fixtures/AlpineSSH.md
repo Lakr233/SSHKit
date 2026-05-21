@@ -36,6 +36,7 @@ The server should support:
 
 - password authentication
 - public-key authentication
+- authentication failure for wrong-password attempts
 - exec channels
 - PTY shell channels
 - SFTP subsystem
@@ -44,8 +45,12 @@ The server should support:
 - SOCKS5 dynamic forwarding to loopback targets on the fixture host
 - ProxyJump from the fixture back to its own loopback sshd
 - `nc` for remote-forward command verification
+- `sleep` for cancellation tests
+- `dd` for SFTP transfer cancellation tests
 
 `SSHKIT_LIVE_HOST` must point at an external fixture host. Live tests reject loopback and localhost values so they exercise a real SSH server outside the developer machine's local sshd.
+
+The live suite also mutates the supplied known-hosts entry to verify host-key mismatch failures, and it starts local loopback proxy/listener processes only as route fixtures while keeping the SSH server target on the external fixture host.
 
 The smoke command used by the current live tests is:
 

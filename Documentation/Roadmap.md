@@ -2,6 +2,8 @@
 
 This roadmap lists the implementation plan for the confirmed SSHKit design.
 
+MVP status: P0 through P4 are implemented in the current MVP branch. Remaining release validation requires running `Script/test-live-fixture.sh` with the external fixture environment.
+
 ## P0: Foundation
 
 Deliver the package foundation and the first reliable command path.

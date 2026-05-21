@@ -282,7 +282,7 @@ class LiveSSHTestCase: XCTestCase {
         try XCTUnwrap(closeResult).get()
     }
 
-    private func makeTemporaryDirectory() throws -> URL {
+    func makeTemporaryDirectory() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("SSHKitLiveTests")
             .appendingPathComponent(UUID().uuidString)

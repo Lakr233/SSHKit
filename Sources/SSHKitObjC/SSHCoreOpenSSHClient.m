@@ -4,6 +4,7 @@
 #import <SSHKitObjC/SSHKitConfiguration.h>
 #import <SSHKitObjC/SSHKitConnection.h>
 #import <SSHKitObjC/SSHKitError.h>
+#include <libssh/callbacks.h>
 #import "SSHCoreSessionWorker.h"
 #import "SSHCoreSocketHandle.h"
 #import "SSHKitCommand+Private.h"
@@ -28,6 +29,60 @@
 
 static const int32_t SSHCoreAbnormalExitStatus = -1;
 static const uint64_t SSHCoreSFTPMaximumReadFileSize = 64 * 1024 * 1024;
+
+static int SSHCoreProxyJumpBeforeConnection(ssh_session session, void *userdata) {
+    SSHKitConfiguration *configuration = (__bridge SSHKitConfiguration *)userdata;
+    long timeout = (long)ceil(configuration.timeout);
+    if (ssh_options_set(session, SSH_OPTIONS_TIMEOUT, &timeout) != SSH_OK) {
+        return SSH_ERROR;
+    }
+    if (configuration.hostKeyPolicyKind == SSHKitHostKeyPolicyKindKnownHostsFile) {
+        if (configuration.knownHostsPath.length == 0) {
+            return SSH_ERROR;
+        }
+        if (ssh_options_set(session, SSH_OPTIONS_KNOWNHOSTS, configuration.knownHostsPath.UTF8String) != SSH_OK) {
+            return SSH_ERROR;
+        }
+    }
+    return SSH_OK;
+}
+
+static int SSHCoreProxyJumpVerifyKnownHost(ssh_session session, void *userdata) {
+    SSHKitConfiguration *configuration = (__bridge SSHKitConfiguration *)userdata;
+    if (configuration.hostKeyPolicyKind == SSHKitHostKeyPolicyKindInsecureAcceptAnyHostKey) {
+        return SSH_OK;
+    }
+    return ssh_session_is_known_server(session) == SSH_KNOWN_HOSTS_OK ? SSH_OK : SSH_ERROR;
+}
+
+static int SSHCoreProxyJumpAuthenticate(ssh_session session, void *userdata) {
+    SSHKitConfiguration *configuration = (__bridge SSHKitConfiguration *)userdata;
+    int rc = SSH_AUTH_DENIED;
+    switch (configuration.authenticationKind) {
+        case SSHKitAuthenticationKindPassword:
+            if (configuration.password.length == 0) {
+                return SSH_ERROR;
+            }
+            rc = ssh_userauth_password(session, NULL, configuration.password.UTF8String);
+            break;
+        case SSHKitAuthenticationKindPrivateKeyFile: {
+            if (configuration.privateKeyPath.length == 0) {
+                return SSH_ERROR;
+            }
+            ssh_key privateKey = NULL;
+            const char *passphrase = configuration.privateKeyPassphrase.length > 0 ? configuration.privateKeyPassphrase.UTF8String : NULL;
+            if (ssh_pki_import_privkey_file(configuration.privateKeyPath.UTF8String, passphrase, NULL, NULL, &privateKey) != SSH_OK) {
+                return SSH_ERROR;
+            }
+            rc = ssh_userauth_publickey(session, NULL, privateKey);
+            ssh_key_free(privateKey);
+            break;
+        }
+        case SSHKitAuthenticationKindKeyboardInteractive:
+            return SSH_ERROR;
+    }
+    return rc == SSH_AUTH_SUCCESS ? SSH_OK : SSH_ERROR;
+}
 
 static int SSHCoreSFTPFileOpenFlagsToPOSIX(SSHKitSFTPFileOpenFlags flags) {
     BOOL wantsRead = (flags & SSHKitSFTPFileOpenFlagRead) == SSHKitSFTPFileOpenFlagRead;
@@ -2318,6 +2373,8 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
 @property (nonatomic, nullable) id currentTask;
 @property (nonatomic) BOOL taskCancelled;
 @property (nonatomic) ssh_session session;
+@property (nonatomic) NSMutableArray<NSValue *> *proxyJumpCallbackPointers;
+@property (nonatomic, copy) NSArray<SSHKitConfiguration *> *proxyJumpCallbackConfigurations;
 
 @end
 
@@ -2331,6 +2388,8 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
         _configuration = [configuration copy];
         _worker = worker;
         _taskLock = [[NSLock alloc] init];
+        _proxyJumpCallbackPointers = [[NSMutableArray alloc] init];
+        _proxyJumpCallbackConfigurations = @[];
     }
     return self;
 }
@@ -2935,20 +2994,22 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
         return NO;
     }
 
-    int fileDescriptor = [self openSocketWithError:error];
-    if (fileDescriptor < 0) {
-        ssh_free(session);
-        return NO;
-    }
-
-    socket_t sshFileDescriptor = fileDescriptor;
-    if (ssh_options_set(session, SSH_OPTIONS_FD, &sshFileDescriptor) != SSH_OK) {
-        if (error) {
-            *error = [self libSSHErrorWithSession:session code:SSHKitErrorCodeConnectionFailed fallback:@"Unable to attach socket to libssh session."];
+    if (self.configuration.proxyRouteKind != SSHKitProxyRouteKindProxyJump) {
+        int fileDescriptor = [self openSocketWithError:error];
+        if (fileDescriptor < 0) {
+            ssh_free(session);
+            return NO;
         }
-        ssh_free(session);
-        [self closeWorkerSocketHandle];
-        return NO;
+
+        socket_t sshFileDescriptor = fileDescriptor;
+        if (ssh_options_set(session, SSH_OPTIONS_FD, &sshFileDescriptor) != SSH_OK) {
+            if (error) {
+                *error = [self libSSHErrorWithSession:session code:SSHKitErrorCodeConnectionFailed fallback:@"Unable to attach socket to libssh session."];
+            }
+            ssh_free(session);
+            [self closeWorkerSocketHandle];
+            return NO;
+        }
     }
 
     [self.taskLock lock];
@@ -2968,7 +3029,7 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
             if ([self isTaskCancelled]) {
                 *error = SSHKitMakeError(SSHKitErrorCodeCancelled, @"SSH connection was cancelled.");
             } else {
-                *error = [self libSSHErrorWithSession:session code:SSHKitErrorCodeConnectionFailed fallback:@"SSH connect failed."];
+                *error = [self libSSHErrorWithSession:session code:SSHKitErrorCodeConnectionFailed fallback:[self connectFailureFallbackMessage]];
             }
         }
         [self emitLogLevel:SSHKitLogLevelError phase:@"connect" message:@"SSH transport connect failed." metadata:@{}];
@@ -2983,6 +3044,18 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
 
     [self emitLogLevel:SSHKitLogLevelInfo phase:@"connect" message:@"SSH transport connect succeeded." metadata:@{}];
     return YES;
+}
+
+- (NSString *)connectFailureFallbackMessage {
+    if (self.configuration.proxyRouteKind == SSHKitProxyRouteKindProxyJump) {
+        SSHKitConfiguration *jump = self.configuration.proxyJumpConfiguration;
+        return [NSString stringWithFormat:@"ProxyJump route failed at %@:%hu while connecting to %@:%hu.", jump.host ?: @"<missing-hop>", jump.port, self.configuration.host, self.configuration.port];
+    }
+    if (self.configuration.proxyRouteKind == SSHKitProxyRouteKindSOCKS5 ||
+        self.configuration.proxyRouteKind == SSHKitProxyRouteKindHTTPConnect) {
+        return [NSString stringWithFormat:@"Proxy route failed at %@:%hu while connecting to %@:%hu.", self.configuration.proxyHost ?: @"<missing-proxy>", self.configuration.proxyPort, self.configuration.host, self.configuration.port];
+    }
+    return @"SSH connect failed.";
 }
 
 - (BOOL)configureLibSSHSession:(ssh_session)session error:(NSError **)error {
@@ -3018,6 +3091,61 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
         }
     }
 
+    if (self.configuration.proxyRouteKind == SSHKitProxyRouteKindProxyJump) {
+        if (![self configureProxyJumpForSession:session error:error]) {
+            return NO;
+        }
+    }
+
+    return YES;
+}
+
+- (BOOL)configureProxyJumpForSession:(ssh_session)session error:(NSError **)error {
+    SSHKitConfiguration *jumpConfiguration = self.configuration.proxyJumpConfiguration;
+    if (jumpConfiguration == nil) {
+        if (error) {
+            *error = SSHKitMakeError(SSHKitErrorCodeConnectionFailed, @"ProxyJump route requires a jump host configuration.");
+        }
+        return NO;
+    }
+    if (jumpConfiguration.authenticationKind == SSHKitAuthenticationKindKeyboardInteractive) {
+        if (error) {
+            *error = SSHKitMakeError(SSHKitErrorCodeAuthenticationFailed, [NSString stringWithFormat:@"ProxyJump route does not support keyboard-interactive authentication for jump host %@:%hu.", jumpConfiguration.host, jumpConfiguration.port]);
+        }
+        return NO;
+    }
+
+    NSString *jumpRoute = [NSString stringWithFormat:@"%@@%@:%hu", jumpConfiguration.username, jumpConfiguration.host, jumpConfiguration.port];
+    if (ssh_options_set(session, SSH_OPTIONS_PROXYJUMP, jumpRoute.UTF8String) != SSH_OK) {
+        if (error) {
+            *error = [self libSSHErrorWithSession:session code:SSHKitErrorCodeConnectionFailed fallback:@"Unable to configure ProxyJump route."];
+        }
+        return NO;
+    }
+
+    struct ssh_jump_callbacks_struct *callbacks = calloc(1, sizeof(struct ssh_jump_callbacks_struct));
+    if (callbacks == NULL) {
+        if (error) {
+            *error = SSHKitMakeError(SSHKitErrorCodeUnavailable, @"Unable to allocate ProxyJump callbacks.");
+        }
+        return NO;
+    }
+
+    callbacks->userdata = (__bridge void *)jumpConfiguration;
+    callbacks->before_connection = SSHCoreProxyJumpBeforeConnection;
+    callbacks->verify_knownhost = SSHCoreProxyJumpVerifyKnownHost;
+    callbacks->authenticate = SSHCoreProxyJumpAuthenticate;
+
+    if (ssh_options_set(session, SSH_OPTIONS_PROXYJUMP_CB_LIST_APPEND, callbacks) != SSH_OK) {
+        free(callbacks);
+        if (error) {
+            *error = [self libSSHErrorWithSession:session code:SSHKitErrorCodeConnectionFailed fallback:@"Unable to configure ProxyJump callbacks."];
+        }
+        return NO;
+    }
+
+    [self.proxyJumpCallbackPointers addObject:[NSValue valueWithPointer:callbacks]];
+    self.proxyJumpCallbackConfigurations = @[jumpConfiguration];
     return YES;
 }
 
@@ -3094,12 +3222,26 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_protocol = IPPROTO_TCP;
 
-    NSString *port = [NSString stringWithFormat:@"%hu", self.configuration.port];
+    NSString *socketHost = self.configuration.host;
+    uint16_t socketPort = self.configuration.port;
+    if (self.configuration.proxyRouteKind == SSHKitProxyRouteKindSOCKS5 ||
+        self.configuration.proxyRouteKind == SSHKitProxyRouteKindHTTPConnect) {
+        if (self.configuration.proxyHost.length == 0 || self.configuration.proxyPort == 0) {
+            if (error) {
+                *error = SSHKitMakeError(SSHKitErrorCodeConnectionFailed, @"Proxy route requires a proxy host and port.");
+            }
+            return -1;
+        }
+        socketHost = self.configuration.proxyHost;
+        socketPort = self.configuration.proxyPort;
+    }
+
+    NSString *port = [NSString stringWithFormat:@"%hu", socketPort];
     struct addrinfo *addresses = NULL;
-    int result = getaddrinfo(self.configuration.host.UTF8String, port.UTF8String, &hints, &addresses);
+    int result = getaddrinfo(socketHost.UTF8String, port.UTF8String, &hints, &addresses);
     if (result != 0) {
         if (error) {
-            *error = SSHKitMakeError(SSHKitErrorCodeConnectionFailed, [NSString stringWithFormat:@"Unable to resolve SSH host: %s", gai_strerror(result)]);
+            *error = SSHKitMakeError(SSHKitErrorCodeConnectionFailed, [NSString stringWithFormat:@"Unable to resolve SSH route host: %s", gai_strerror(result)]);
         }
         return -1;
     }
@@ -3113,7 +3255,8 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
         }
 
         self.worker.socketHandle = [[SSHCoreSocketHandle alloc] initWithFileDescriptor:fileDescriptor];
-        if ([self connectSocket:fileDescriptor address:address error:&lastError]) {
+        if ([self connectSocket:fileDescriptor address:address error:&lastError] &&
+            [self completeProxyRouteOnSocket:fileDescriptor error:&lastError]) {
             freeaddrinfo(addresses);
             return fileDescriptor;
         }
@@ -3126,6 +3269,18 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
         *error = lastError ?: SSHKitMakeError(SSHKitErrorCodeConnectionFailed, @"Unable to connect SSH socket.");
     }
     return -1;
+}
+
+- (BOOL)completeProxyRouteOnSocket:(int)fileDescriptor error:(NSError **)error {
+    switch (self.configuration.proxyRouteKind) {
+        case SSHKitProxyRouteKindNone:
+        case SSHKitProxyRouteKindProxyJump:
+            return YES;
+        case SSHKitProxyRouteKindSOCKS5:
+            return [self completeSOCKS5ProxyRouteOnSocket:fileDescriptor error:error];
+        case SSHKitProxyRouteKindHTTPConnect:
+            return [self completeHTTPConnectProxyRouteOnSocket:fileDescriptor error:error];
+    }
 }
 
 - (BOOL)connectSocket:(int)fileDescriptor address:(struct addrinfo *)address error:(NSError **)error {
@@ -3180,6 +3335,202 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
     }
 
     fcntl(fileDescriptor, F_SETFL, originalFlags);
+    return YES;
+}
+
+- (BOOL)completeSOCKS5ProxyRouteOnSocket:(int)fileDescriptor error:(NSError **)error {
+    BOOL wantsPassword = self.configuration.proxyUsername.length > 0 || self.configuration.proxyPassword.length > 0;
+    uint8_t greeting[4] = {0x05, wantsPassword ? 0x02 : 0x01, 0x00, 0x02};
+    if (![self writeBytes:(const char *)greeting length:(wantsPassword ? 4 : 3) toProxySocket:fileDescriptor error:error]) {
+        return NO;
+    }
+
+    uint8_t selection[2];
+    if (![self readBytes:selection length:sizeof(selection) fromProxySocket:fileDescriptor error:error] || selection[0] != 0x05) {
+        if (error) {
+            *error = SSHKitMakeError(SSHKitErrorCodeConnectionFailed, @"SOCKS5 proxy route failed during method negotiation.");
+        }
+        return NO;
+    }
+    if (wantsPassword && selection[1] == 0x02) {
+        if (![self authenticateSOCKS5ProxyRouteOnSocket:fileDescriptor error:error]) {
+            return NO;
+        }
+    } else if ((!wantsPassword && selection[1] != 0x00) || (wantsPassword && selection[1] != 0x02)) {
+        if (error) {
+            *error = SSHKitMakeError(SSHKitErrorCodeConnectionFailed, [NSString stringWithFormat:@"SOCKS5 proxy route rejected authentication method at %@:%hu.", self.configuration.proxyHost, self.configuration.proxyPort]);
+        }
+        return NO;
+    }
+
+    NSData *hostData = [self.configuration.host dataUsingEncoding:NSUTF8StringEncoding];
+    if (hostData.length == 0 || hostData.length > UINT8_MAX) {
+        if (error) {
+            *error = SSHKitMakeError(SSHKitErrorCodeConnectionFailed, @"SOCKS5 proxy route target host must be 1...255 UTF-8 bytes.");
+        }
+        return NO;
+    }
+
+    NSMutableData *request = [[NSMutableData alloc] initWithCapacity:7 + hostData.length];
+    uint8_t prefix[5] = {0x05, 0x01, 0x00, 0x03, (uint8_t)hostData.length};
+    [request appendBytes:prefix length:sizeof(prefix)];
+    [request appendData:hostData];
+    uint8_t port[2] = {(uint8_t)(self.configuration.port >> 8), (uint8_t)(self.configuration.port & 0x00FF)};
+    [request appendBytes:port length:sizeof(port)];
+    if (![self writeBytes:request.bytes length:request.length toProxySocket:fileDescriptor error:error]) {
+        return NO;
+    }
+
+    uint8_t replyHeader[4];
+    if (![self readBytes:replyHeader length:sizeof(replyHeader) fromProxySocket:fileDescriptor error:error] || replyHeader[0] != 0x05) {
+        if (error) {
+            *error = SSHKitMakeError(SSHKitErrorCodeConnectionFailed, @"SOCKS5 proxy route failed while reading CONNECT reply.");
+        }
+        return NO;
+    }
+    if (replyHeader[1] != 0x00) {
+        if (error) {
+            *error = SSHKitMakeError(SSHKitErrorCodeConnectionFailed, [NSString stringWithFormat:@"SOCKS5 proxy route failed at %@:%hu with reply %hhu.", self.configuration.proxyHost, self.configuration.proxyPort, replyHeader[1]]);
+        }
+        return NO;
+    }
+
+    NSUInteger addressLength = 0;
+    if (replyHeader[3] == 0x01) {
+        addressLength = 4;
+    } else if (replyHeader[3] == 0x04) {
+        addressLength = 16;
+    } else if (replyHeader[3] == 0x03) {
+        uint8_t domainLength = 0;
+        if (![self readBytes:&domainLength length:1 fromProxySocket:fileDescriptor error:error]) {
+            return NO;
+        }
+        addressLength = domainLength;
+    } else {
+        if (error) {
+            *error = SSHKitMakeError(SSHKitErrorCodeConnectionFailed, @"SOCKS5 proxy route returned an unsupported address type.");
+        }
+        return NO;
+    }
+
+    NSMutableData *ignored = [NSMutableData dataWithLength:addressLength + 2];
+    return [self readBytes:ignored.mutableBytes length:ignored.length fromProxySocket:fileDescriptor error:error];
+}
+
+- (BOOL)authenticateSOCKS5ProxyRouteOnSocket:(int)fileDescriptor error:(NSError **)error {
+    NSData *username = [(self.configuration.proxyUsername ?: @"") dataUsingEncoding:NSUTF8StringEncoding];
+    NSData *password = [(self.configuration.proxyPassword ?: @"") dataUsingEncoding:NSUTF8StringEncoding];
+    if (username.length > UINT8_MAX || password.length > UINT8_MAX) {
+        if (error) {
+            *error = SSHKitMakeError(SSHKitErrorCodeConnectionFailed, @"SOCKS5 proxy route credentials must be at most 255 UTF-8 bytes.");
+        }
+        return NO;
+    }
+
+    NSMutableData *request = [[NSMutableData alloc] initWithCapacity:3 + username.length + password.length];
+    uint8_t version = 0x01;
+    uint8_t usernameLength = (uint8_t)username.length;
+    uint8_t passwordLength = (uint8_t)password.length;
+    [request appendBytes:&version length:1];
+    [request appendBytes:&usernameLength length:1];
+    [request appendData:username];
+    [request appendBytes:&passwordLength length:1];
+    [request appendData:password];
+    if (![self writeBytes:request.bytes length:request.length toProxySocket:fileDescriptor error:error]) {
+        return NO;
+    }
+
+    uint8_t response[2];
+    if (![self readBytes:response length:sizeof(response) fromProxySocket:fileDescriptor error:error] || response[0] != 0x01 || response[1] != 0x00) {
+        if (error) {
+            *error = SSHKitMakeError(SSHKitErrorCodeAuthenticationFailed, [NSString stringWithFormat:@"SOCKS5 proxy route authentication failed at %@:%hu.", self.configuration.proxyHost, self.configuration.proxyPort]);
+        }
+        return NO;
+    }
+    return YES;
+}
+
+- (BOOL)completeHTTPConnectProxyRouteOnSocket:(int)fileDescriptor error:(NSError **)error {
+    NSString *authority = [NSString stringWithFormat:@"%@:%hu", self.configuration.host, self.configuration.port];
+    NSMutableString *request = [NSMutableString stringWithFormat:@"CONNECT %@ HTTP/1.1\r\nHost: %@\r\nProxy-Connection: Keep-Alive\r\n", authority, authority];
+    if (self.configuration.proxyUsername.length > 0 || self.configuration.proxyPassword.length > 0) {
+        NSString *credentials = [NSString stringWithFormat:@"%@:%@", self.configuration.proxyUsername ?: @"", self.configuration.proxyPassword ?: @""];
+        NSString *encodedCredentials = [[credentials dataUsingEncoding:NSUTF8StringEncoding] base64EncodedStringWithOptions:0];
+        [request appendFormat:@"Proxy-Authorization: Basic %@\r\n", encodedCredentials];
+    }
+    [request appendString:@"\r\n"];
+
+    NSData *requestData = [request dataUsingEncoding:NSUTF8StringEncoding];
+    if (![self writeBytes:requestData.bytes length:requestData.length toProxySocket:fileDescriptor error:error]) {
+        return NO;
+    }
+
+    NSMutableData *response = [[NSMutableData alloc] init];
+    uint8_t byte = 0;
+    while (response.length < 16 * 1024) {
+        if (![self readBytes:&byte length:1 fromProxySocket:fileDescriptor error:error]) {
+            return NO;
+        }
+        [response appendBytes:&byte length:1];
+        if (response.length >= 4) {
+            const uint8_t *bytes = response.bytes;
+            NSUInteger length = response.length;
+            if (bytes[length - 4] == '\r' && bytes[length - 3] == '\n' && bytes[length - 2] == '\r' && bytes[length - 1] == '\n') {
+                NSString *header = [[NSString alloc] initWithData:response encoding:NSUTF8StringEncoding] ?: @"";
+                NSArray<NSString *> *lines = [header componentsSeparatedByString:@"\r\n"];
+                NSString *statusLine = lines.firstObject ?: @"";
+                if ([statusLine containsString:@" 200 "]) {
+                    return YES;
+                }
+                if (error) {
+                    *error = SSHKitMakeError(SSHKitErrorCodeConnectionFailed, [NSString stringWithFormat:@"HTTP CONNECT proxy route failed at %@:%hu with status '%@'.", self.configuration.proxyHost, self.configuration.proxyPort, statusLine]);
+                }
+                return NO;
+            }
+        }
+    }
+
+    if (error) {
+        *error = SSHKitMakeError(SSHKitErrorCodeConnectionFailed, @"HTTP CONNECT proxy route response header exceeded 16 KiB.");
+    }
+    return NO;
+}
+
+- (BOOL)readBytes:(void *)buffer length:(NSUInteger)length fromProxySocket:(int)socket error:(NSError **)error {
+    uint8_t *cursor = buffer;
+    NSUInteger remaining = length;
+    while (remaining > 0) {
+        ssize_t bytesRead = read(socket, cursor, remaining);
+        if (bytesRead < 0 && errno == EINTR) {
+            continue;
+        }
+        if (bytesRead <= 0) {
+            if (error) {
+                *error = SSHKitMakeError(SSHKitErrorCodeConnectionFailed, [NSString stringWithFormat:@"Proxy route socket read failed: %s", strerror(errno)]);
+            }
+            return NO;
+        }
+        cursor += bytesRead;
+        remaining -= (NSUInteger)bytesRead;
+    }
+    return YES;
+}
+
+- (BOOL)writeBytes:(const char *)bytes length:(size_t)length toProxySocket:(int)socket error:(NSError **)error {
+    size_t offset = 0;
+    while (offset < length) {
+        ssize_t written = write(socket, bytes + offset, length - offset);
+        if (written < 0 && errno == EINTR) {
+            continue;
+        }
+        if (written <= 0) {
+            if (error) {
+                *error = SSHKitMakeError(SSHKitErrorCodeConnectionFailed, [NSString stringWithFormat:@"Proxy route socket write failed: %s", strerror(errno)]);
+            }
+            return NO;
+        }
+        offset += (size_t)written;
+    }
     return YES;
 }
 
@@ -3504,7 +3855,16 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
         ssh_disconnect(session);
         ssh_free(session);
     }
+    [self freeProxyJumpCallbacks];
     [self closeWorkerSocketHandle];
+}
+
+- (void)freeProxyJumpCallbacks {
+    for (NSValue *value in self.proxyJumpCallbackPointers) {
+        free([value pointerValue]);
+    }
+    [self.proxyJumpCallbackPointers removeAllObjects];
+    self.proxyJumpCallbackConfigurations = @[];
 }
 
 - (void)closeWorkerSocketHandle {
@@ -3539,9 +3899,12 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
     SSHCoreSocketHandle *socketHandle = self.worker.socketHandle;
     self.worker.socketHandle = nil;
     dispatch_queue_t workerQueue = self.worker.queue;
+    NSArray<NSValue *> *proxyJumpCallbackPointers = [self.proxyJumpCallbackPointers copy];
+    [self.proxyJumpCallbackPointers removeAllObjects];
+    self.proxyJumpCallbackConfigurations = @[];
     [self.taskLock unlock];
 
-    if (session == NULL && socketHandle == nil && taskObject == nil) {
+    if (session == NULL && socketHandle == nil && taskObject == nil && proxyJumpCallbackPointers.count == 0) {
         return;
     }
 
@@ -3554,6 +3917,9 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
         if (session != NULL) {
             ssh_disconnect(session);
             ssh_free(session);
+        }
+        for (NSValue *value in proxyJumpCallbackPointers) {
+            free([value pointerValue]);
         }
 
         int fileDescriptor = socketHandle ? [socketHandle takeFileDescriptorForClose] : -1;

@@ -136,6 +136,61 @@ import Testing
     #expect(box.events[0].metadata["password"] == "<redacted>")
 }
 
+@Test func `configuration bridge maps SOCKS5 proxy route`() {
+    let configuration = SSHClientConfiguration(
+        host: "target.example.com",
+        username: "user",
+        authentication: .password("secret"),
+        hostKeyPolicy: .knownHostsFile("/tmp/known_hosts"),
+        proxyRoute: .socks5(SSHProxyEndpoint(host: "proxy.example.com", port: 1080, username: "proxy-user", password: "proxy-pass")),
+    ).bridgeConfiguration
+
+    #expect(configuration.proxyRouteKind == .SOCKS5)
+    #expect(configuration.proxyHost == "proxy.example.com")
+    #expect(configuration.proxyPort == 1080)
+    #expect(configuration.proxyUsername == "proxy-user")
+    #expect(configuration.proxyPassword == "proxy-pass")
+}
+
+@Test func `configuration bridge maps HTTP CONNECT proxy route`() {
+    let configuration = SSHClientConfiguration(
+        host: "target.example.com",
+        username: "user",
+        authentication: .password("secret"),
+        hostKeyPolicy: .knownHostsFile("/tmp/known_hosts"),
+        proxyRoute: .httpConnect(SSHProxyEndpoint(host: "proxy.example.com", port: 8080)),
+    ).bridgeConfiguration
+
+    #expect(configuration.proxyRouteKind == .httpConnect)
+    #expect(configuration.proxyHost == "proxy.example.com")
+    #expect(configuration.proxyPort == 8080)
+}
+
+@Test func `configuration bridge maps ProxyJump route`() throws {
+    let configuration = SSHClientConfiguration(
+        host: "target.example.com",
+        username: "user",
+        authentication: .password("secret"),
+        hostKeyPolicy: .knownHostsFile("/tmp/known_hosts"),
+        proxyRoute: .proxyJump(SSHJumpHost(
+            host: "jump.example.com",
+            port: 2222,
+            username: "jump-user",
+            authentication: .privateKeyFile(path: "/tmp/jump_key"),
+            hostKeyPolicy: .knownHostsFile("/tmp/jump_known_hosts"),
+        )),
+    ).bridgeConfiguration
+
+    #expect(configuration.proxyRouteKind == .proxyJump)
+    let jump = try #require(configuration.proxyJump)
+    #expect(jump.host == "jump.example.com")
+    #expect(jump.port == 2222)
+    #expect(jump.username == "jump-user")
+    #expect(jump.authenticationKind == .privateKeyFile)
+    #expect(jump.privateKeyPath == "/tmp/jump_key")
+    #expect(jump.knownHostsPath == "/tmp/jump_known_hosts")
+}
+
 @Test func `diagnostic report includes connection context and redacts metadata`() {
     let configuration = SSHClientConfiguration(
         host: "example.com",

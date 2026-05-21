@@ -52,6 +52,7 @@
         _authenticationKind = SSHKitAuthenticationKindPassword;
         _hostKeyPolicyKind = SSHKitHostKeyPolicyKindKnownHostsFile;
         _timeout = 30;
+        _proxyRouteKind = SSHKitProxyRouteKindNone;
     }
     return self;
 }
@@ -78,6 +79,12 @@
     copy.knownHostsPath = self.knownHostsPath;
     copy.timeout = self.timeout;
     copy.logHandler = self.logHandler;
+    copy.proxyRouteKind = self.proxyRouteKind;
+    copy.proxyHost = self.proxyHost;
+    copy.proxyPort = self.proxyPort;
+    copy.proxyUsername = self.proxyUsername;
+    copy.proxyPassword = self.proxyPassword;
+    copy.proxyJumpConfiguration = self.proxyJumpConfiguration;
     return copy;
 }
 

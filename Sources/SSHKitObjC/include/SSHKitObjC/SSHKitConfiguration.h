@@ -37,6 +37,13 @@ typedef NS_ENUM(NSInteger, SSHKitLogLevel) {
     SSHKitLogLevelError = 3,
 };
 
+typedef NS_ENUM(NSInteger, SSHKitProxyRouteKind) {
+    SSHKitProxyRouteKindNone = 0,
+    SSHKitProxyRouteKindSOCKS5 = 1,
+    SSHKitProxyRouteKindHTTPConnect = 2,
+    SSHKitProxyRouteKindProxyJump = 3,
+};
+
 @interface SSHKitLogEvent : NSObject
 
 @property (nonatomic, readonly) SSHKitLogLevel level;
@@ -68,6 +75,12 @@ typedef void (^SSHKitLogHandler)(SSHKitLogEvent *event);
 @property (nonatomic, copy, nullable) NSString *knownHostsPath;
 @property (nonatomic) NSTimeInterval timeout;
 @property (nonatomic, copy, nullable) SSHKitLogHandler logHandler;
+@property (nonatomic) SSHKitProxyRouteKind proxyRouteKind;
+@property (nonatomic, copy, nullable) NSString *proxyHost;
+@property (nonatomic) uint16_t proxyPort;
+@property (nonatomic, copy, nullable) NSString *proxyUsername;
+@property (nonatomic, copy, nullable) NSString *proxyPassword;
+@property (nonatomic, copy, nullable) SSHKitConfiguration *proxyJumpConfiguration NS_SWIFT_NAME(proxyJump);
 
 - (instancetype)initWithHost:(NSString *)host username:(NSString *)username;
 

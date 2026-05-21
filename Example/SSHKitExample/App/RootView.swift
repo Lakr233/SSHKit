@@ -8,6 +8,7 @@ enum SidebarItem: String, Hashable, CaseIterable, Identifiable {
     case multiCommand
     case sessionFuzz
     case latency
+    case logs
 
     var id: String {
         rawValue
@@ -22,6 +23,7 @@ enum SidebarItem: String, Hashable, CaseIterable, Identifiable {
         case .multiCommand: "Multi-Command Stress"
         case .sessionFuzz: "Session Fuzz"
         case .latency: "Latency Probe"
+        case .logs: "Logs"
         }
     }
 
@@ -34,6 +36,7 @@ enum SidebarItem: String, Hashable, CaseIterable, Identifiable {
         case .multiCommand: "bolt.horizontal"
         case .sessionFuzz: "die.face.5"
         case .latency: "gauge.with.dots.needle.50percent"
+        case .logs: "text.alignleft"
         }
     }
 
@@ -43,6 +46,7 @@ enum SidebarItem: String, Hashable, CaseIterable, Identifiable {
         case .sftp: .transfers
         case .portMap: .tunnels
         case .multiCommand, .sessionFuzz, .latency: .diagnostics
+        case .logs: .observability
         }
     }
 }
@@ -52,6 +56,7 @@ enum SidebarSection: String, Hashable, CaseIterable, Identifiable {
     case transfers
     case tunnels
     case diagnostics
+    case observability
 
     var id: String {
         rawValue
@@ -63,6 +68,7 @@ enum SidebarSection: String, Hashable, CaseIterable, Identifiable {
         case .transfers: "Transfers"
         case .tunnels: "Tunnels"
         case .diagnostics: "Diagnostics"
+        case .observability: "Observability"
         }
     }
 
@@ -96,7 +102,7 @@ struct RootView: View {
         .alert(
             "Connection error",
             isPresented: bindingForError,
-            presenting: store.lastError,
+            presenting: store.lastError
         ) { _ in
             Button("OK", role: .cancel) { store.lastError = nil }
         } message: { error in
@@ -109,9 +115,10 @@ struct RootView: View {
             ForEach(SidebarSection.allCases) { section in
                 Section(section.title) {
                     ForEach(section.items) { item in
-                        Label(item.title, systemImage: item.systemImage)
-                            .tag(Optional(item))
-                            .accessibilityIdentifier("SSHKitExample.Sidebar.\(item.rawValue)")
+                        NavigationLink(value: item) {
+                            Label(item.title, systemImage: item.systemImage)
+                        }
+                        .accessibilityIdentifier("SSHKitExample.Sidebar.\(item.rawValue)")
                     }
                 }
             }
@@ -121,11 +128,17 @@ struct RootView: View {
 
     @ViewBuilder
     private var detail: some View {
-        if store.configuration == nil {
+        if let item = selection, item == .logs {
+            // The log inspector is always available — it does not need an
+            // active SSH connection.
+            content(for: item)
+                .toolbar { connectToolbar }
+                .accessibilityIdentifier("SSHKitExample.Detail.\(item.rawValue)")
+        } else if store.configuration == nil {
             ContentUnavailableView(
                 "Not connected",
                 systemImage: "network.slash",
-                description: Text("Tap Connect to set up an SSH session."),
+                description: Text("Tap Connect to set up an SSH session.")
             )
             .toolbar { connectToolbar }
         } else if let item = selection {
@@ -136,7 +149,7 @@ struct RootView: View {
             ContentUnavailableView(
                 "Pick a feature",
                 systemImage: "sidebar.left",
-                description: Text("Choose a screen from the sidebar."),
+                description: Text("Choose a screen from the sidebar.")
             )
             .toolbar { connectToolbar }
         }
@@ -152,6 +165,7 @@ struct RootView: View {
         case .multiCommand: MultiCommandStressView()
         case .sessionFuzz: SessionFuzzView()
         case .latency: LatencyView()
+        case .logs: LogInspectorView()
         }
     }
 
@@ -163,7 +177,7 @@ struct RootView: View {
             } label: {
                 Label(
                     store.configuration == nil ? "Connect" : "Reconnect",
-                    systemImage: "bolt.horizontal",
+                    systemImage: "bolt.horizontal"
                 )
             }
             .accessibilityIdentifier("SSHKitExample.Toolbar.Connect")
@@ -173,14 +187,14 @@ struct RootView: View {
     private var bindingForActiveSheet: Binding<ActiveSheet?> {
         Binding(
             get: { store.activeSheet },
-            set: { store.activeSheet = $0 },
+            set: { store.activeSheet = $0 }
         )
     }
 
     private var bindingForError: Binding<Bool> {
         Binding(
-            get: { store.lastError != nil },
-            set: { newValue in if !newValue { store.lastError = nil } },
+            get: { store.lastError != nil && store.activeSheet == nil },
+            set: { newValue in if !newValue { store.lastError = nil } }
         )
     }
 }

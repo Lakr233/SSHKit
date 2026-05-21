@@ -87,55 +87,80 @@ struct PortMapView: View {
     }
 
     private func openForward() {
-        guard let pool = store.pool else { return }
+        guard let pool = store.pool else {
+            AppLog.warning(.portMap, "openForward without an active pool")
+            return
+        }
         let kind = mode
         let lHost = localHost
         let lPort = localPort
         let rHost = remoteHost
         let rPort = remotePort
+        let meta: [String: String] = [
+            "kind": kind.rawValue,
+            "localHost": lHost,
+            "localPort": String(lPort),
+            "remoteHost": kind == .dynamic ? "" : rHost,
+            "remotePort": kind == .dynamic ? "" : String(rPort),
+        ]
+        AppLog.info(.portMap, "Opening forward", metadata: meta)
         status = "Opening…"
         task = Task.detached {
             do {
                 try await pool.run { connection in
-                    let forward: SSHPortForward = switch kind {
-                    case .local:
-                        try await connection.startLocalForward(
-                            localHost: lHost,
-                            localPort: lPort,
-                            remoteHost: rHost,
-                            remotePort: rPort,
-                        )
-                    case .remote:
-                        try await connection.startRemoteForward(
-                            remoteHost: lHost,
-                            remotePort: lPort,
-                            localHost: rHost,
-                            localPort: rPort,
-                        )
-                    case .dynamic:
-                        try await connection.startDynamicForward(
-                            localHost: lHost,
-                            localPort: lPort,
-                        )
+                    let forward: SSHPortForward = try await AppLog.span(.portMap, "startForward", metadata: meta) {
+                        switch kind {
+                        case .local:
+                            try await connection.startLocalForward(
+                                localHost: lHost,
+                                localPort: lPort,
+                                remoteHost: rHost,
+                                remotePort: rPort
+                            )
+                        case .remote:
+                            try await connection.startRemoteForward(
+                                remoteHost: lHost,
+                                remotePort: lPort,
+                                localHost: rHost,
+                                localPort: rPort
+                            )
+                        case .dynamic:
+                            try await connection.startDynamicForward(
+                                localHost: lHost,
+                                localPort: lPort
+                            )
+                        }
                     }
                     await MainActor.run {
                         activeForward = ForwardEntry(
                             kind: kind,
                             forward: forward,
                             boundHost: forward.boundHost,
-                            boundPort: forward.boundPort,
+                            boundPort: forward.boundPort
                         )
                         status = "Forward opened. Tip: keep this screen alive while the tunnel is in use."
                     }
+                    AppLog.info(.portMap, "Forward bound", metadata: meta.merging([
+                        "boundHost": forward.boundHost,
+                        "boundPort": String(forward.boundPort),
+                    ]) { _, new in new })
                     // Stay inside the withConnection scope until the user closes.
                     while await !shouldClose() {
                         try await Task.sleep(nanoseconds: 250_000_000)
                     }
+                    AppLog.info(.portMap, "Closing forward", metadata: meta.merging([
+                        "boundHost": forward.boundHost,
+                        "boundPort": String(forward.boundPort),
+                    ]) { _, new in new })
                     try? await forward.close()
                 }
             } catch let error as SSHKitError {
+                AppLog.error(.portMap, "Forward failed", metadata: meta.merging(error.logMetadata) { _, new in new })
                 await MainActor.run { status = "Error: \(error.message)" }
             } catch {
+                AppLog.error(.portMap, "Forward failed (non-SSHKit)", metadata: meta.merging([
+                    "errorMessage": error.localizedDescription,
+                ]) { _, new in new })
                 await MainActor.run { status = "Error: \(error.localizedDescription)" }
             }
             await MainActor.run {
@@ -146,6 +171,7 @@ struct PortMapView: View {
     }
 
     private func closeForward() {
+        AppLog.info(.portMap, "User requested forward close")
         task?.cancel()
         status = "Closing…"
     }

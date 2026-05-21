@@ -29,10 +29,10 @@ final class SSHTerminalSession {
         let resizeBridge = InMemoryResizeBridge(logRecorder: recorderRef)
         inMemory = InMemoryTerminalSession(
             write: { data in writeBridge.dispatch(data) },
-            resize: { viewport in resizeBridge.dispatch(viewport) },
+            resize: { viewport in resizeBridge.dispatch(viewport) }
         )
         viewState = TerminalViewState(
-            terminalConfiguration: TerminalConfiguration(),
+            terminalConfiguration: TerminalConfiguration()
         )
         viewState.configuration = TerminalSurfaceOptions(backend: .inMemory(inMemory))
         // Wire the bridges back to self once self is fully constructed.
@@ -42,36 +42,49 @@ final class SSHTerminalSession {
 
     func start() async {
         guard state == .idle else {
-            logRecorder.record(.init(
-                level: .debug, phase: "terminal",
-                message: "start() called in state \(state); ignoring",
-                metadata: [:], timestamp: Date(),
-            ))
+            AppLog.debug(.terminal, "start() called in non-idle state — ignoring", metadata: [
+                "state": String(describing: state),
+            ])
             return
         }
         let token = UUID()
         startToken = token
         state = .starting
+        AppLog.info(.terminal, "Terminal session start requested", metadata: [
+            "host": configuration.host,
+            "port": String(configuration.port),
+            "username": configuration.username,
+            "token": token.uuidString,
+        ])
 
         var pendingConnection: SSHConnection?
         var pendingShell: SSHShell?
         do {
-            let opened = try await SSHClient.connect(configuration: configuration)
+            let opened = try await AppLog.span(.terminal, "SSHClient.connect", metadata: ["token": token.uuidString]) {
+                try await SSHClient.connect(configuration: configuration)
+            }
             pendingConnection = opened
             guard state == .starting, startToken == token else {
+                AppLog.warning(.terminal, "Start cancelled before shell open", metadata: ["token": token.uuidString])
                 await cleanupPending(connection: opened, shell: nil)
                 return
             }
             let (cols, rows) = currentGridSize() ?? (80, 24)
+            AppLog.debug(.terminal, "Opening shell", metadata: [
+                "token": token.uuidString,
+                "columns": String(cols),
+                "rows": String(rows),
+            ])
             let openedShell = try await opened.openShell(
                 terminalType: "xterm-256color",
                 columns: cols,
-                rows: rows,
+                rows: rows
             ) { [weak self] event in
                 Task { @MainActor [weak self] in self?.handleShellEvent(event) }
             }
             pendingShell = openedShell
             guard state == .starting, startToken == token else {
+                AppLog.warning(.terminal, "Start cancelled after shell open — cleaning up", metadata: ["token": token.uuidString])
                 await cleanupPending(connection: opened, shell: openedShell)
                 return
             }
@@ -79,25 +92,42 @@ final class SSHTerminalSession {
             shell = openedShell
             startedAt = DispatchTime.now()
             state = .running
+            AppLog.info(.terminal, "Terminal session running", metadata: [
+                "token": token.uuidString,
+                "columns": String(cols),
+                "rows": String(rows),
+            ])
         } catch let error as SSHKitError {
+            AppLog.error(.terminal, "Terminal start failed", metadata: error.logMetadata)
             await cleanupPending(connection: pendingConnection, shell: pendingShell)
             recordError(error, phase: "start")
             state = .finished
         } catch {
+            AppLog.error(.terminal, "Terminal start failed (non-SSHKit)", metadata: [
+                "errorMessage": String(describing: error),
+            ])
             await cleanupPending(connection: pendingConnection, shell: pendingShell)
             recordError(
                 SSHKitError(
                     code: SSHKitErrorCode.unavailable.rawValue,
-                    message: String(describing: error),
+                    message: String(describing: error)
                 ),
-                phase: "start",
+                phase: "start"
             )
             state = .finished
         }
     }
 
     func stop() async {
-        guard state == .running || state == .starting else { return }
+        guard state == .running || state == .starting else {
+            AppLog.debug(.terminal, "stop() called in non-running/starting state — ignoring", metadata: [
+                "state": String(describing: state),
+            ])
+            return
+        }
+        AppLog.info(.terminal, "Stopping terminal session", metadata: [
+            "previousState": String(describing: state),
+        ])
         state = .stopping
         let pendingShell = shell; shell = nil
         let pendingConn = connection; connection = nil
@@ -110,7 +140,7 @@ final class SSHTerminalSession {
             catch {
                 recordError(
                     SSHKitError(code: SSHKitErrorCode.unavailable.rawValue, message: String(describing: error)),
-                    phase: "shellClose",
+                    phase: "shellClose"
                 )
             }
         }
@@ -120,7 +150,7 @@ final class SSHTerminalSession {
             catch {
                 recordError(
                     SSHKitError(code: SSHKitErrorCode.unavailable.rawValue, message: String(describing: error)),
-                    phase: "connClose",
+                    phase: "connClose"
                 )
             }
         }
@@ -138,7 +168,7 @@ final class SSHTerminalSession {
                 await MainActor.run {
                     self?.recordError(
                         SSHKitError(code: SSHKitErrorCode.unavailable.rawValue, message: String(describing: error)),
-                        phase: "write",
+                        phase: "write"
                     )
                 }
             }
@@ -157,7 +187,7 @@ final class SSHTerminalSession {
                 await MainActor.run {
                     self?.recordError(
                         SSHKitError(code: SSHKitErrorCode.unavailable.rawValue, message: String(describing: error)),
-                        phase: "resize",
+                        phase: "resize"
                     )
                 }
             }
@@ -186,7 +216,7 @@ final class SSHTerminalSession {
                         await MainActor.run {
                             self?.recordError(
                                 SSHKitError(code: SSHKitErrorCode.unavailable.rawValue, message: String(describing: error)),
-                                phase: "closeAfterShellClosed",
+                                phase: "closeAfterShellClosed"
                             )
                         }
                     }
@@ -202,7 +232,7 @@ final class SSHTerminalSession {
             catch {
                 recordError(
                     SSHKitError(code: SSHKitErrorCode.unavailable.rawValue, message: String(describing: error)),
-                    phase: "startCleanupShell",
+                    phase: "startCleanupShell"
                 )
             }
         }
@@ -212,7 +242,7 @@ final class SSHTerminalSession {
             catch {
                 recordError(
                     SSHKitError(code: SSHKitErrorCode.unavailable.rawValue, message: String(describing: error)),
-                    phase: "startCleanupConn",
+                    phase: "startCleanupConn"
                 )
             }
         }
@@ -220,10 +250,9 @@ final class SSHTerminalSession {
 
     private func recordError(_ error: SSHKitError, phase: String) {
         lastError = error
-        logRecorder.record(.init(
-            level: .error, phase: phase, message: error.message,
-            metadata: [:], timestamp: Date(),
-        ))
+        AppLog.error(.terminal, "Terminal error in phase \(phase)", metadata: error.logMetadata.merging([
+            "phase": phase,
+        ]) { _, new in new })
     }
 
     private func currentGridSize() -> (UInt16, UInt16)? {

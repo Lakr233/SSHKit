@@ -20,7 +20,7 @@ struct TerminalScreen: View {
                 ContentUnavailableView(
                     "Not connected",
                     systemImage: "network.slash",
-                    description: Text("Connect first to open a shell."),
+                    description: Text("Connect first to open a shell.")
                 )
             } else {
                 ProgressView("Opening shell…")
@@ -29,12 +29,19 @@ struct TerminalScreen: View {
         .navigationTitle("Terminal")
         .task(id: store.configuration?.host) {
             if let config = store.configuration {
+                AppLog.info(.terminal, "TerminalScreen attaching session", metadata: [
+                    "host": config.host,
+                    "port": String(config.port),
+                ])
                 let s = SSHTerminalSession(configuration: config, logRecorder: store.logRecorder)
                 session = s
                 await s.start()
+            } else {
+                AppLog.debug(.terminal, "TerminalScreen task fired without configuration")
             }
         }
         .onDisappear {
+            AppLog.info(.terminal, "TerminalScreen disappearing — tearing down session")
             let s = session
             session = nil
             Task { await s?.stop() }

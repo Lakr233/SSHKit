@@ -12,7 +12,7 @@ struct ConnectionPoolTests {
             port: 22,
             username: "user",
             authentication: .password("hunter2"),
-            hostKeyPolicy: .insecureAcceptAnyHostKey,
+            hostKeyPolicy: .insecureAcceptAnyHostKey
         )
         let pool = ConnectionPool(configuration: config)
         #expect(pool.configuration.host == "127.0.0.1")

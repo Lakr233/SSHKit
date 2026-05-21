@@ -4,6 +4,7 @@ struct HostTrustEnrollmentView: View {
     @Environment(ConnectionStore.self) private var store
 
     let pending: PendingEnrollment
+    @State private var isConnecting = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -28,13 +29,20 @@ struct HostTrustEnrollmentView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
+                .disabled(isConnecting)
                 Button {
-                    store.approveEnrollment(pending)
+                    Task { await approve() }
                 } label: {
-                    Text("Trust & Connect")
-                        .frame(maxWidth: .infinity)
+                    if isConnecting {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                    } else {
+                        Text("Trust & Connect")
+                            .frame(maxWidth: .infinity)
+                    }
                 }
                 .buttonStyle(.borderedProminent)
+                .disabled(isConnecting)
                 .accessibilityIdentifier("SSHKitExample.Enrollment.Approve")
             }
         }
@@ -42,5 +50,32 @@ struct HostTrustEnrollmentView: View {
         #if os(macOS)
             .frame(minWidth: 480)
         #endif
+            .alert(
+                "Connection error",
+                isPresented: bindingForError,
+                presenting: store.lastError
+            ) { _ in
+                Button("OK", role: .cancel) { store.lastError = nil }
+            } message: { error in
+                Text(error.message)
+            }
+    }
+
+    private var bindingForError: Binding<Bool> {
+        Binding(
+            get: { store.lastError != nil },
+            set: { newValue in if !newValue { store.lastError = nil } }
+        )
+    }
+
+    private func approve() async {
+        AppLog.info(.ui, "Host trust enrollment — Approve tapped", metadata: [
+            "host": pending.host,
+            "port": String(pending.port),
+            "fingerprint": pending.fingerprint.rawValue,
+        ])
+        isConnecting = true
+        defer { isConnecting = false }
+        await store.approveEnrollment(pending)
     }
 }

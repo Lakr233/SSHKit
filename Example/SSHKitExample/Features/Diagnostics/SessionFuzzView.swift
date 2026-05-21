@@ -37,13 +37,26 @@ struct SessionFuzzView: View {
     }
 
     private func runFuzz() {
-        guard let pool = store.pool else { return }
+        guard let pool = store.pool else {
+            AppLog.warning(.sessionFuzz, "runFuzz without an active pool")
+            return
+        }
         let n = workers
+        AppLog.info(.sessionFuzz, "Fuzz starting", metadata: ["workers": String(n)])
         transcript = ""
         iterationCount = 0
         isRunning = true
         task = Task {
-            defer { Task { @MainActor in isRunning = false; task = nil } }
+            defer {
+                Task { @MainActor in
+                    AppLog.info(.sessionFuzz, "Fuzz stopped", metadata: [
+                        "workers": String(n),
+                        "iterations": String(iterationCount),
+                    ])
+                    isRunning = false
+                    task = nil
+                }
+            }
             await withTaskGroup(of: Void.self) { group in
                 for worker in 0 ..< n {
                     group.addTask {
@@ -59,15 +72,22 @@ struct SessionFuzzView: View {
                                     iterationCount += 1
                                     let head = String(
                                         data: result.standardOutput.prefix(64),
-                                        encoding: .utf8,
+                                        encoding: .utf8
                                     ) ?? ""
                                     transcript = String(("[w\(worker) i\(currentIteration)] " + head + "\n" + transcript).prefix(8000))
                                 }
                             } catch let e as SSHKitError {
+                                AppLog.error(.sessionFuzz, "Iteration failed",
+                                             metadata: ["worker": String(worker), "iter": String(currentIteration)].merging(e.logMetadata) { _, new in new })
                                 await MainActor.run {
                                     transcript = String(("[w\(worker) i\(currentIteration) ERR] " + e.message + "\n" + transcript).prefix(8000))
                                 }
                             } catch {
+                                AppLog.error(.sessionFuzz, "Iteration failed (non-SSHKit)", metadata: [
+                                    "worker": String(worker),
+                                    "iter": String(currentIteration),
+                                    "errorMessage": error.localizedDescription,
+                                ])
                                 await MainActor.run {
                                     transcript = String(("[w\(worker) i\(currentIteration) ERR] " + error.localizedDescription + "\n" + transcript).prefix(8000))
                                 }

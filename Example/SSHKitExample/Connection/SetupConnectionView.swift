@@ -26,17 +26,19 @@ struct SetupConnectionView: View {
                     .keyboardType(.numberPad)
                 #endif
             }
-            Section("Credentials") {
+            Section {
                 TextField("Username", text: $username, prompt: Text("root"))
                     .autocorrectionDisabled()
                 #if os(iOS)
                     .textInputAutocapitalization(.never)
                 #endif
                 SecureField("Password", text: $password, prompt: Text("password"))
+            } header: {
+                Text("Credentials")
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("First connect discovers the host key. You'll approve the fingerprint before any credentials are sent.")
-                    Text("Demo only: host, port, username, and password persist in plain text via UserDefaults — never enter production credentials.")
+                    Text("Host-key approval happens before the password is sent.")
+                    Text("Demo only: host, port, username, and password persist in plain text via UserDefaults.")
                 }
                 .font(.footnote)
                 .foregroundStyle(.secondary)
@@ -55,15 +57,20 @@ struct SetupConnectionView: View {
                     Button {
                         Task { await connect() }
                     } label: {
-                        if isConnecting {
-                            ProgressView()
-                        } else {
-                            Text("Discover & Connect")
-                        }
+                        Text(isConnecting ? "Connecting…" : "Discover & Connect")
                     }
                     .disabled(isConnecting || host.isEmpty || username.isEmpty || password.isEmpty || port == nil)
                     .accessibilityIdentifier("SSHKitExample.Setup.Connect")
                 }
+            }
+            .alert(
+                "Connection error",
+                isPresented: bindingForError,
+                presenting: store.lastError
+            ) { _ in
+                Button("OK", role: .cancel) { store.lastError = nil }
+            } message: { error in
+                Text(error.message)
             }
     }
 
@@ -71,15 +78,32 @@ struct SetupConnectionView: View {
         UInt16(portString)
     }
 
+    private var bindingForError: Binding<Bool> {
+        Binding(
+            get: { store.lastError != nil },
+            set: { newValue in if !newValue { store.lastError = nil } }
+        )
+    }
+
     private func connect() async {
-        guard let port else { return }
+        guard let port else {
+            AppLog.warning(.ui, "SetupConnectionView.connect aborted: invalid port", metadata: [
+                "portInput": portString,
+            ])
+            return
+        }
+        AppLog.info(.ui, "SetupConnectionView submitted", metadata: [
+            "host": host,
+            "port": String(port),
+            "username": username,
+        ])
         isConnecting = true
         defer { isConnecting = false }
         await store.beginConnect(
             host: host,
             port: port,
             username: username,
-            authentication: .password(password),
+            authentication: .password(password)
         )
     }
 }

@@ -38,25 +38,52 @@ struct MultiCommandStressView: View {
     }
 
     private func runStress() {
-        guard let pool = store.pool else { return }
+        guard let pool = store.pool else {
+            AppLog.warning(.multiCommand, "runStress without an active pool")
+            return
+        }
         let cmd = command
         let count = concurrency
+        AppLog.info(.multiCommand, "Starting concurrent stress run", metadata: [
+            "concurrency": String(count),
+            "commandPreview": String(cmd.prefix(80)),
+        ])
         transcript = ""
         isRunning = true
+        let started = DispatchTime.now()
         task = Task {
-            defer { Task { @MainActor in isRunning = false; task = nil } }
+            defer {
+                let ms = (DispatchTime.now().uptimeNanoseconds &- started.uptimeNanoseconds) / 1_000_000
+                AppLog.info(.multiCommand, "Stress run finished", metadata: [
+                    "concurrency": String(count),
+                    "durationMs": String(ms),
+                ])
+                Task { @MainActor in isRunning = false; task = nil }
+            }
             await withTaskGroup(of: String.self) { group in
                 for i in 0 ..< count {
                     group.addTask {
+                        AppLog.debug(.multiCommand, "Worker started", metadata: ["worker": String(i)])
                         do {
                             let result = try await pool.run { conn in
                                 try await conn.execute(cmd)
                             }
+                            AppLog.info(.multiCommand, "Worker finished", metadata: [
+                                "worker": String(i),
+                                "exitStatus": String(result.exitStatus),
+                                "stdoutBytes": String(result.standardOutput.count),
+                            ])
                             let out = String(data: result.standardOutput, encoding: .utf8) ?? "<bin>"
                             return "[#\(i) exit=\(result.exitStatus)]\n\(out)"
                         } catch let e as SSHKitError {
+                            AppLog.error(.multiCommand, "Worker failed",
+                                         metadata: ["worker": String(i)].merging(e.logMetadata) { _, new in new })
                             return "[#\(i) error] \(e.message)"
                         } catch {
+                            AppLog.error(.multiCommand, "Worker failed (non-SSHKit)", metadata: [
+                                "worker": String(i),
+                                "errorMessage": error.localizedDescription,
+                            ])
                             return "[#\(i) error] \(error.localizedDescription)"
                         }
                     }

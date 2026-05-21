@@ -14,33 +14,25 @@ struct SetupConnectionView: View {
     var body: some View {
         Form {
             Section("Server") {
-                LabeledContent("Host") {
-                    TextField("127.0.0.1", text: $host)
-                        .textContentType(.URL)
-                        .autocorrectionDisabled()
-                    #if os(iOS)
-                        .keyboardType(.URL)
-                        .textInputAutocapitalization(.never)
-                    #endif
-                }
-                LabeledContent("Port") {
-                    TextField("22", text: $portString)
-                    #if os(iOS)
-                        .keyboardType(.numberPad)
-                    #endif
-                }
+                TextField("Host", text: $host, prompt: Text("127.0.0.1"))
+                    .textContentType(.URL)
+                    .autocorrectionDisabled()
+                #if os(iOS)
+                    .keyboardType(.URL)
+                    .textInputAutocapitalization(.never)
+                #endif
+                TextField("Port", text: $portString, prompt: Text("22"))
+                #if os(iOS)
+                    .keyboardType(.numberPad)
+                #endif
             }
             Section("Credentials") {
-                LabeledContent("Username") {
-                    TextField("root", text: $username)
-                        .autocorrectionDisabled()
-                    #if os(iOS)
-                        .textInputAutocapitalization(.never)
-                    #endif
-                }
-                LabeledContent("Password") {
-                    SecureField("password", text: $password)
-                }
+                TextField("Username", text: $username, prompt: Text("root"))
+                    .autocorrectionDisabled()
+                #if os(iOS)
+                    .textInputAutocapitalization(.never)
+                #endif
+                SecureField("Password", text: $password, prompt: Text("password"))
             }
             Section {
                 Button {

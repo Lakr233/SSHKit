@@ -9,6 +9,7 @@ typedef void (^SSHKitConnectCompletion)(SSHKitConnection *_Nullable connection, 
 
 + (void)connectWithConfiguration:(SSHKitConfiguration *)configuration completion:(SSHKitConnectCompletion)completion;
 + (void)discoverAuthenticationMethodsWithConfiguration:(SSHKitConfiguration *)configuration completion:(SSHKitAuthenticationDiscoveryCompletion)completion;
++ (void)discoverHostKeyWithConfiguration:(SSHKitConfiguration *)configuration completion:(SSHKitHostKeyDiscoveryCompletion)completion;
 
 @end
 

@@ -91,14 +91,43 @@ final class HostTrustLiveTests: LiveSSHTestCase {
         assertSmokeCommandResult(result)
     }
 
-    private func discoverFixtureFingerprint(fixture: AlpineSSHFixture) async throws -> SSHHostKeyFingerprint {
+    func testDiscoverHostKeySavesIntoKeychainTrustStore() async throws {
+        try requireLiveTestsEnabled()
+
+        let fixture = try AlpineSSHFixture()
+        let discovered = try await SSHClient.discoverHostKey(configuration: SSHHostKeyDiscoveryConfiguration(
+            host: fixture.host,
+            port: fixture.port,
+            timeout: 10,
+            logHandler: { event in
+                LiveSSHLog.core(event)
+            },
+        ))
+        let store = SSHKeychainHostTrustStore(service: "wiki.qaq.sshkit.live.\(UUID().uuidString)")
+        defer {
+            try? store.removeFingerprint(host: fixture.host, port: fixture.port)
+        }
+        try store.saveFingerprint(discovered.fingerprint, host: discovered.host, port: discovered.port)
+
         let connection = try await SSHClient.connect(configuration: privateKeyConfiguration(
             fixture: fixture,
-            hostKeyPolicy: .insecureAcceptAnyHostKey,
+            hostKeyPolicy: .trustStore(store),
         ))
-        let fingerprint = try XCTUnwrap(connection.hostKeyFingerprint)
+
+        XCTAssertEqual(connection.hostKeyFingerprint, discovered.fingerprint)
         try await connection.close()
-        return fingerprint
+    }
+
+    private func discoverFixtureFingerprint(fixture: AlpineSSHFixture) async throws -> SSHHostKeyFingerprint {
+        let discovered = try await SSHClient.discoverHostKey(configuration: SSHHostKeyDiscoveryConfiguration(
+            host: fixture.host,
+            port: fixture.port,
+            timeout: 10,
+            logHandler: { event in
+                LiveSSHLog.core(event)
+            },
+        ))
+        return discovered.fingerprint
     }
 
     private func privateKeyConfiguration(

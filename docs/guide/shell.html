@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>SSHKit · PTY shell</title>
+<link rel="stylesheet" href="../styles.css">
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github.min.css"
+      integrity="sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L"
+      crossorigin="anonymous"
+      media="(prefers-color-scheme: light)">
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github-dark.min.css"
+      integrity="sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH"
+      crossorigin="anonymous"
+      media="(prefers-color-scheme: dark)">
+</head>
+<body>
+<nav class="topbar" aria-label="Primary">
+  <a class="home" href="../index.html">SSHKit</a>
+  <a href="../index.html">Overview</a>
+  <a href="index.html" aria-current="page">Guide</a>
+  <a href="../api/index.html">API</a>
+  <a href="../architecture.html">Architecture</a>
+  <a href="../objc.html">Obj-C</a>
+</nav>
+
+<main>
+<h1>PTY shell</h1>
+<nav class="on-this-page" aria-label="On this page">
+  <strong>On this page:</strong>
+  <a href="#open">Open</a>
+  <a href="#resize">Resize</a>
+  <a href="#events">Events</a>
+</nav>
+
+<h2 id="open">Open</h2>
+<pre><code class="language-swift">let shell = try await connection.openShell(
+    terminalType: "xterm-256color",
+    columns: 120,
+    rows: 32
+) { event in
+    if case .standardOutput(let data) = event {
+        FileHandle.standardOutput.write(data)
+    }
+}
+
+try await shell.write("ls -la\n")
+try await shell.write(Data([0x03]))   // Ctrl-C
+try await shell.close()
+</code></pre>
+<p>The event handler runs off the worker queue; do your own dispatch if you need to mutate UI state.</p>
+
+<h2 id="resize">Resize</h2>
+<pre><code class="language-swift">try await shell.resize(columns: 200, rows: 50)
+</code></pre>
+<p>Resizing emits <code>SIGWINCH</code> on the remote PTY. Resize early and often if you have a terminal view that the user can drag.</p>
+
+<h2 id="events">Events</h2>
+<p><code>SSHShellEvent</code> has three cases:</p>
+<ul>
+<li><code>.standardOutput(Data)</code> &mdash; bytes from the PTY (merged stdout + stderr).</li>
+<li><code>.standardError(Data)</code> &mdash; reserved for non-PTY shell backends; PTY shells merge stderr into stdout.</li>
+<li><code>.closed(Int32)</code> &mdash; channel exit status. The event handler will not be invoked again after this.</li>
+</ul>
+
+<nav class="pager" aria-label="Sibling pages">
+  <a class="prev" href="commands.html">Commands</a>
+  <a class="parent" href="index.html">↑ Guide</a>
+  <a class="next" href="sftp.html">SFTP</a>
+</nav>
+
+<footer>
+SSHKit · <a href="https://github.com/Lakr233/SSHKit">github.com/Lakr233/SSHKit</a>
+</footer>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/highlight.min.js"
+        integrity="sha384-GdEWAbCjn+ghjX0gLx7/N1hyTVmPAjdC2OvoAA0RyNcAOhqwtT8qnbCxWle2+uJX"
+        crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/languages/swift.min.js"
+        integrity="sha384-TfALNLT6HJzZieazgsVvFM0DzFWQsgl0d7mdwPLyg1yg7XE4QwLY4jqmJRNnI1S4"
+        crossorigin="anonymous"></script>
+<script>hljs.highlightAll();</script>
+</body>
+</html>

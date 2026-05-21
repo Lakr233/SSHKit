@@ -21,15 +21,15 @@
 <nav class="topbar" aria-label="Primary">
   <a class="home" href="index.html">SSHKit</a>
   <a href="index.html">Overview</a>
-  <a href="guide.html">Guide</a>
-  <a href="api.html">API</a>
+  <a href="guide/index.html">Guide</a>
+  <a href="api/index.html">API</a>
   <a href="architecture.html">Architecture</a>
   <a href="objc.html" aria-current="page">Obj-C</a>
 </nav>
 
 <main>
 <h1>Objective-C</h1>
-<p class="lede">SSHKit ships a parallel Objective-C façade (<code>SSHKitObjC</code>) covering the same operations as the Swift API. Import the umbrella header:</p>
+<p class="lede">SSHKit ships a parallel Objective-C façade (<code>SSHKitObjC</code>) covering connection, command, shell, SFTP, tunneling, and forwarding. A few Swift-only conveniences &mdash; the SCP helpers, the keychain credential store, key generation wrappers, the algorithm-profile struct, and the latency probe &mdash; do not have direct Obj-C counterparts and are listed at the bottom of this page. Import the umbrella header:</p>
 <pre><code class="language-objectivec">#import &lt;SSHKitObjC/SSHKitObjC.h&gt;</code></pre>
 
 <h2 id="example">Canonical example</h2>
@@ -38,8 +38,10 @@
                                      username:@"deploy"];
 
 configuration.authentication = [SSHKitAuthentication password:@"secret"];
+// Use a known_hosts file on first connection; switch to a populated
+// keychain trust store after you have stored the server's fingerprint.
 configuration.hostKeyPolicy =
-    [SSHKitHostKeyPolicy keychainTrustStoreWithService:@"wiki.qaq.sshkit"];
+    [SSHKitHostKeyPolicy knownHostsFile:[@"~/.ssh/known_hosts" stringByExpandingTildeInPath]];
 
 [SSHKitClient connectWithConfiguration:configuration
                             completion:^(SSHKitConnection *connection, NSError *error) {
@@ -124,6 +126,16 @@ configuration.hostKeyPolicy =
 </tbody>
 </table>
 
+<h3>Host-key discovery</h3>
+<table>
+<thead><tr><th>Type</th><th>Header</th><th>Purpose</th></tr></thead>
+<tbody>
+<tr><td><code>SSHKitDiscoveredHostKey</code></td><td><code>SSHKitConnection.h</code></td><td>Result struct: <code>host</code>, <code>port</code>, <code>fingerprint</code> (SHA-256 string).</td></tr>
+<tr><td><code>-[SSHKitConnection discoverHostKeyWithCompletion:]</code></td><td><code>SSHKitConnection.h</code></td><td>Transport-only handshake. Reads the server&rsquo;s fingerprint and closes the session without authenticating.</td></tr>
+</tbody>
+</table>
+<p>The Obj-C entry point is built on the same <code>SSHKitConnection</code> as a regular connect, but uses a discovery-only configuration path. Build an <code>SSHKitConfiguration</code> with the host, port, timeout, proxy, and algorithm fields, then call <code>discoverHostKeyWithCompletion:</code>; <code>authentication</code> and <code>username</code> are not required.</p>
+
 <h3>Logging</h3>
 <table>
 <thead><tr><th>Type</th><th>Header</th><th>Purpose</th></tr></thead>
@@ -140,7 +152,7 @@ configuration.hostKeyPolicy =
 <thead><tr><th>Symbol</th><th>Header</th><th>Purpose</th></tr></thead>
 <tbody>
 <tr><td><code>SSHKitErrorDomain</code></td><td><code>SSHKitError.h</code></td><td><code>NSErrorDomain</code> used by every emitted <code>NSError</code>.</td></tr>
-<tr><td><code>SSHKitErrorCode</code></td><td><code>SSHKitError.h</code></td><td><code>NS_ERROR_ENUM</code> with codes 1&ndash;11 (see the <a href="api.html#SSHKitErrorCode">code table</a>).</td></tr>
+<tr><td><code>SSHKitErrorCode</code></td><td><code>SSHKitError.h</code></td><td><code>NS_ERROR_ENUM</code> with codes 1&ndash;11 (see the <a href="api/errors.html#SSHKitErrorCode">code table</a>).</td></tr>
 <tr><td><code>SSHKitMakeError(code, message)</code></td><td><code>SSHKitError.h</code></td><td>Helper to build an <code>NSError</code> in the SSHKit domain.</td></tr>
 </tbody>
 </table>
@@ -178,6 +190,7 @@ configuration.hostKeyPolicy =
 <tr><td><code>SSHTunnelChannel</code></td><td><code>SSHKitTunnelChannel</code></td></tr>
 <tr><td><code>SSHPortForward</code></td><td><code>SSHKitPortForward</code></td></tr>
 <tr><td><code>SSHAuthenticationMethod</code> / <code>SSHAuthenticationDiscoveryResult</code></td><td><code>SSHKitAuthenticationMethod</code> / <code>SSHKitAuthenticationDiscoveryResult</code></td></tr>
+<tr><td><code>SSHHostKeyDiscoveryConfiguration</code> / <code>SSHDiscoveredHostKey</code> / <code>SSHClient.discoverHostKey</code></td><td><code>SSHKitConfiguration</code> (subset of fields) / <code>SSHKitDiscoveredHostKey</code> / <code>-[SSHKitConnection discoverHostKeyWithCompletion:]</code></td></tr>
 <tr><td><code>SSHLogLevel</code> / <code>SSHLogEvent</code> / <code>SSHLogRecorder</code></td><td><code>SSHKitLogLevel</code> / <code>SSHKitLogEvent</code> / <code>SSHKitLogRecorder</code></td></tr>
 <tr><td><code>SSHKitError</code> / <code>SSHKitErrorCode</code></td><td><code>NSError</code> in <code>SSHKitErrorDomain</code> / <code>SSHKitErrorCode</code></td></tr>
 <tr><td><code>SSHGeneratedKeyPair</code> / <code>SSHKeyGenerator</code> / <code>SSHKeyGenerationType</code></td><td><code>SSHKitGeneratedKeyPair</code> / <code>SSHKitKeyGenerationType</code></td></tr>
@@ -185,7 +198,15 @@ configuration.hostKeyPolicy =
 </tbody>
 </table>
 
-<p class="muted">Note: SCP helpers are Swift-only &mdash; they live as a <code>public extension SSHConnection</code> on top of streamed commands. Obj-C callers can write the same SCP protocol on top of <code>SSHKitCommand</code> if needed.</p>
+<h2 id="swift-only">Swift-only surface</h2>
+<p>These are Swift conveniences with no direct Obj-C counterpart:</p>
+<ul>
+<li><strong>SCP helpers</strong> &mdash; <code>uploadFileWithSCP</code> / <code>downloadFileWithSCP</code> live as a <code>public extension SSHConnection</code> built on top of streamed commands. Obj-C callers can re-implement the SCP protocol on top of <code>SSHKitCommand</code> if needed.</li>
+<li><strong>Keychain credential store</strong> &mdash; <code>SSHKeychainCredentialStore</code> persists passwords and private keys keyed by account.</li>
+<li><strong>Key generation</strong> &mdash; <code>SSHKeyGenerator</code> is a Swift wrapper. Obj-C callers can call <code>SSHKitGeneratedKeyPair</code> directly with its <code>SSHKitKeyGenerationType</code> enum.</li>
+<li><strong>Algorithm profile struct</strong> &mdash; <code>SSHAlgorithmProfile</code> is Swift; the Obj-C side exposes raw fields on <code>SSHKitConfiguration</code> and <code>+SSHKitAlgorithmInspector inspectAlgorithmsWith…</code> for resolved snapshots.</li>
+<li><strong>Latency probe</strong> &mdash; <code>SSHPortLatencyProbe.measure(...)</code> is Swift-only.</li>
+</ul>
 
 <footer>
 SSHKit · <a href="https://github.com/Lakr233/SSHKit">github.com/Lakr233/SSHKit</a>

@@ -136,6 +136,44 @@ import Testing
     #expect(configuration.trustedHostKeySHA256Fingerprint == nil)
 }
 
+@Test func `host key discovery result maps Objective C result`() {
+    let result = SSHKitHostKeyDiscoveryResult(
+        host: "example.com",
+        port: 2222,
+        fingerprint: "abc123",
+    )
+
+    let discovered = SSHDiscoveredHostKey(result)
+
+    #expect(discovered.host == "example.com")
+    #expect(discovered.port == 2222)
+    #expect(discovered.fingerprint == SSHHostKeyFingerprint("abc123"))
+}
+
+@Test func `host key discovery bridge maps connection options`() {
+    let configuration = SSHHostKeyDiscoveryConfiguration(
+        host: "example.com",
+        port: 2222,
+        timeout: 12,
+        proxyRoute: .socks5(SSHProxyEndpoint(host: "proxy.example.com", port: 1080, username: "proxy-user", password: "proxy-secret")),
+        algorithmProfile: .legacyRSA,
+    ).bridgeConfiguration
+
+    #expect(configuration.host == "example.com")
+    #expect(configuration.port == 2222)
+    #expect(configuration.username == "sshkit-host-key-discovery")
+    #expect(configuration.timeout == 12)
+    #expect(configuration.authenticationKind == .password)
+    #expect(configuration.password == "")
+    #expect(configuration.hostKeyPolicyKind == .insecureAcceptAnyHostKey)
+    #expect(configuration.proxyRouteKind == .SOCKS5)
+    #expect(configuration.proxyHost == "proxy.example.com")
+    #expect(configuration.proxyPort == 1080)
+    #expect(configuration.proxyUsername == "proxy-user")
+    #expect(configuration.proxyPassword == "proxy-secret")
+    #expect(configuration.publicKeyAcceptedAlgorithms?.contains("ssh-rsa") == true)
+}
+
 @Test func `authentication discovery maps Objective C methods`() {
     let result = SSHKitAuthenticationDiscoveryResult(
         methods: [

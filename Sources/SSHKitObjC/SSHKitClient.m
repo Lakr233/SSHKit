@@ -24,4 +24,12 @@
     [connection discoverAuthenticationMethodsWithCompletion:completion];
 }
 
++ (void)discoverHostKeyWithConfiguration:(SSHKitConfiguration *)configuration completion:(SSHKitHostKeyDiscoveryCompletion)completion {
+    NSParameterAssert(configuration != nil);
+    NSParameterAssert(completion != nil);
+
+    SSHKitConnection *connection = [[SSHKitConnection alloc] initWithConfiguration:configuration];
+    [connection discoverHostKeyWithCompletion:completion];
+}
+
 @end

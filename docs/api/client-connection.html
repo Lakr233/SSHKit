@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>SSHKit · API · Client &amp; connection</title>
+<link rel="stylesheet" href="../styles.css">
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github.min.css"
+      integrity="sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L"
+      crossorigin="anonymous"
+      media="(prefers-color-scheme: light)">
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github-dark.min.css"
+      integrity="sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH"
+      crossorigin="anonymous"
+      media="(prefers-color-scheme: dark)">
+</head>
+<body>
+<nav class="topbar" aria-label="Primary">
+  <a class="home" href="../index.html">SSHKit</a>
+  <a href="../index.html">Overview</a>
+  <a href="../guide/index.html">Guide</a>
+  <a href="index.html" aria-current="page">API</a>
+  <a href="../architecture.html">Architecture</a>
+  <a href="../objc.html">Obj-C</a>
+</nav>
+
+<main>
+<h1>Client &amp; connection</h1>
+<nav class="on-this-page" aria-label="On this page">
+  <strong>On this page:</strong>
+  <a href="#SSHClient">SSHClient</a>
+  <a href="#SSHClientConfiguration">SSHClientConfiguration</a>
+  <a href="#SSHProxyRoute">SSHProxyRoute</a>
+  <a href="#SSHProxyEndpoint">SSHProxyEndpoint</a>
+  <a href="#SSHJumpHost">SSHJumpHost</a>
+  <a href="#SSHConnection">SSHConnection</a>
+</nav>
+
+<h2 id="SSHClient">SSHClient</h2>
+<p>Stateless entry point. <code>SSHClient.Configuration</code> is a typealias for <code>SSHClientConfiguration</code>.</p>
+<pre><code class="language-swift">public enum SSHClient {
+    public typealias Configuration = SSHClientConfiguration
+
+    public static func connect(configuration: SSHClientConfiguration) async throws -&gt; SSHConnection
+    public static func discoverAuthenticationMethods(
+        configuration: SSHClientConfiguration
+    ) async throws -&gt; SSHAuthenticationDiscoveryResult
+
+    public static func withConnection&lt;Result&gt;(
+        _ configuration: SSHClientConfiguration,
+        operation: (SSHConnection) async throws -&gt; Result
+    ) async throws -&gt; Result
+}
+</code></pre>
+<p><code>connect</code> and <code>discoverAuthenticationMethods</code> also have callback variants. <code>withConnection</code> is async-only. A separate <a href="host-trust.html#SSHClient.discoverHostKey"><code>SSHClient.discoverHostKey</code></a> entry point on <a href="host-trust.html">Host trust</a> performs a transport-only handshake to collect a server&rsquo;s fingerprint before any authentication.</p>
+
+<h2 id="SSHClientConfiguration">SSHClientConfiguration</h2>
+<pre><code class="language-swift">public struct SSHClientConfiguration: Sendable {
+    public var host: String
+    public var port: UInt16
+    public var username: String
+    public var authentication: SSHAuthentication
+    public var hostKeyPolicy: SSHHostKeyPolicy
+    public var timeout: TimeInterval
+    public var logHandler: SSHLogHandler?
+    public var proxyRoute: SSHProxyRoute?
+    public var algorithmProfile: SSHAlgorithmProfile
+
+    public init(
+        host: String,
+        port: UInt16 = 22,
+        username: String,
+        authentication: SSHAuthentication,
+        hostKeyPolicy: SSHHostKeyPolicy,
+        timeout: TimeInterval = 30,
+        logHandler: SSHLogHandler? = nil,
+        proxyRoute: SSHProxyRoute? = nil,
+        algorithmProfile: SSHAlgorithmProfile = .modern
+    )
+
+    public func diagnosticReport(
+        phase: String = "configuration",
+        metadata: [String: String] = [:],
+        recentEvents: [SSHLogEvent] = []
+    ) -&gt; SSHDiagnosticReport
+}
+</code></pre>
+
+<h2 id="SSHProxyRoute">SSHProxyRoute</h2>
+<pre><code class="language-swift">public enum SSHProxyRoute: Sendable {
+    case socks5(SSHProxyEndpoint)
+    case httpConnect(SSHProxyEndpoint)
+    case proxyJump(SSHJumpHost)
+}
+</code></pre>
+
+<h2 id="SSHProxyEndpoint">SSHProxyEndpoint</h2>
+<pre><code class="language-swift">public struct SSHProxyEndpoint: Sendable {
+    public var host: String
+    public var port: UInt16
+    public var username: String?
+    public var password: String?
+
+    public init(host: String, port: UInt16, username: String? = nil, password: String? = nil)
+}
+</code></pre>
+
+<h2 id="SSHJumpHost">SSHJumpHost</h2>
+<pre><code class="language-swift">public struct SSHJumpHost: Sendable {
+    public var host: String
+    public var port: UInt16
+    public var username: String
+    public var authentication: SSHAuthentication
+    public var hostKeyPolicy: SSHHostKeyPolicy
+    public var timeout: TimeInterval
+    public var algorithmProfile: SSHAlgorithmProfile
+
+    public init(
+        host: String,
+        port: UInt16 = 22,
+        username: String,
+        authentication: SSHAuthentication,
+        hostKeyPolicy: SSHHostKeyPolicy,
+        timeout: TimeInterval = 30,
+        algorithmProfile: SSHAlgorithmProfile = .modern
+    )
+}
+</code></pre>
+
+<h2 id="SSHConnection">SSHConnection</h2>
+<p>One <code>SSHConnection</code> owns one libssh session and runs one active high-level job at a time.</p>
+<pre><code class="language-swift">public final class SSHConnection: @unchecked Sendable {
+    public var hostKeyFingerprint: SSHHostKeyFingerprint? { get }
+
+    public func diagnosticReport(
+        phase: String = "connected",
+        metadata: [String: String] = [:],
+        recentEvents: [SSHLogEvent] = []
+    ) -&gt; SSHDiagnosticReport
+
+    public func execute(_ command: String) async throws -&gt; SSHCommandResult
+    public func openCommand(_ command: String) async throws -&gt; SSHCommand
+
+    public func openShell(
+        terminalType: String = "xterm-256color",
+        columns: UInt16 = 80,
+        rows: UInt16 = 24,
+        eventHandler: @escaping @Sendable (SSHShellEvent) -&gt; Void
+    ) async throws -&gt; SSHShell
+
+    public func openSFTP() async throws -&gt; SFTPClient
+    public func openDirectTCPChannel(host: String, port: UInt16) async throws -&gt; SSHTunnelChannel
+
+    public func startLocalForward(
+        localHost: String = "127.0.0.1",
+        localPort: UInt16 = 0,
+        remoteHost: String,
+        remotePort: UInt16
+    ) async throws -&gt; SSHPortForward
+
+    public func startRemoteForward(
+        remoteHost: String = "127.0.0.1",
+        remotePort: UInt16 = 0,
+        localHost: String,
+        localPort: UInt16
+    ) async throws -&gt; SSHPortForward
+
+    public func startDynamicForward(
+        localHost: String = "127.0.0.1",
+        localPort: UInt16 = 0,
+        username: String? = nil,
+        password: String? = nil
+    ) async throws -&gt; SSHPortForward
+
+    public func close() async throws
+}
+</code></pre>
+<p>Every method above (except <code>diagnosticReport</code> and the property) has a matching callback overload with <code>callbackQueue:</code> + <code>completion:</code>. The async overloads route Task cancellation into the same socket-shutdown path described in <a href="../architecture.html#cancellation">Architecture</a>.</p>
+
+<nav class="pager" aria-label="Sibling pages">
+  <a class="prev" href="index.html">API hub</a>
+  <a class="parent" href="index.html">↑ API</a>
+  <a class="next" href="command-shell.html">Commands &amp; shell</a>
+</nav>
+
+<footer>
+SSHKit · <a href="https://github.com/Lakr233/SSHKit">github.com/Lakr233/SSHKit</a>
+</footer>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/highlight.min.js"
+        integrity="sha384-GdEWAbCjn+ghjX0gLx7/N1hyTVmPAjdC2OvoAA0RyNcAOhqwtT8qnbCxWle2+uJX"
+        crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/languages/swift.min.js"
+        integrity="sha384-TfALNLT6HJzZieazgsVvFM0DzFWQsgl0d7mdwPLyg1yg7XE4QwLY4jqmJRNnI1S4"
+        crossorigin="anonymous"></script>
+<script>hljs.highlightAll();</script>
+</body>
+</html>

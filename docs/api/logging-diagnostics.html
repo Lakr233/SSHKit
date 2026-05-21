@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>SSHKit · API · Logging &amp; diagnostics</title>
+<link rel="stylesheet" href="../styles.css">
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github.min.css"
+      integrity="sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L"
+      crossorigin="anonymous"
+      media="(prefers-color-scheme: light)">
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github-dark.min.css"
+      integrity="sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH"
+      crossorigin="anonymous"
+      media="(prefers-color-scheme: dark)">
+</head>
+<body>
+<nav class="topbar" aria-label="Primary">
+  <a class="home" href="../index.html">SSHKit</a>
+  <a href="../index.html">Overview</a>
+  <a href="../guide/index.html">Guide</a>
+  <a href="index.html" aria-current="page">API</a>
+  <a href="../architecture.html">Architecture</a>
+  <a href="../objc.html">Obj-C</a>
+</nav>
+
+<main>
+<h1>Logging &amp; diagnostics</h1>
+<nav class="on-this-page" aria-label="On this page">
+  <strong>On this page:</strong>
+  <a href="#SSHLogLevel">SSHLogLevel</a>
+  <a href="#SSHLogEvent">SSHLogEvent</a>
+  <a href="#SSHLogHandler">SSHLogHandler</a>
+  <a href="#SSHLogRecorder">SSHLogRecorder</a>
+  <a href="#SSHDiagnosticReport">SSHDiagnosticReport</a>
+  <a href="#SSHPortLatencyProbe">SSHPortLatencyProbe</a>
+  <a href="#SSHPortLatencyReport">SSHPortLatencyReport</a>
+  <a href="#SSHPortLatencyRoute">SSHPortLatencyRoute</a>
+</nav>
+
+<h2 id="SSHLogLevel">SSHLogLevel</h2>
+<pre><code class="language-swift">public enum SSHLogLevel: Int, Sendable {
+    case debug
+    case info
+    case warning
+    case error
+}
+</code></pre>
+
+<h2 id="SSHLogEvent">SSHLogEvent</h2>
+<pre><code class="language-swift">public struct SSHLogEvent: Equatable, Sendable {
+    public var level: SSHLogLevel
+    public var phase: String
+    public var message: String
+    public var metadata: [String: String]
+    public var timestamp: Date
+
+    public init(
+        level: SSHLogLevel,
+        phase: String,
+        message: String,
+        metadata: [String: String] = [:],
+        timestamp: Date = Date()
+    )
+
+    public var redacted: SSHLogEvent { get }
+}
+</code></pre>
+
+<h2 id="SSHLogHandler">SSHLogHandler</h2>
+<pre><code class="language-swift">public typealias SSHLogHandler = @Sendable (SSHLogEvent) -&gt; Void
+</code></pre>
+
+<h2 id="SSHLogRecorder">SSHLogRecorder</h2>
+<pre><code class="language-swift">public final class SSHLogRecorder: @unchecked Sendable {
+    public init(capacity: Int = 200)
+    public func record(_ event: SSHLogEvent)
+    public var events: [SSHLogEvent] { get }
+}
+</code></pre>
+<p>Stored events are always redacted: <code>record</code> calls <code>event.redacted</code> before insertion. The buffer is a fixed-capacity ring &mdash; oldest events drop when full.</p>
+
+<h2 id="SSHDiagnosticReport">SSHDiagnosticReport</h2>
+<pre><code class="language-swift">public struct SSHDiagnosticReport: Equatable, Sendable {
+    public var phase: String
+    public var host: String
+    public var port: UInt16
+    public var username: String
+    public var authentication: String
+    public var hostKeyPolicy: String
+    public var metadata: [String: String]
+    public var recentEvents: [SSHLogEvent]
+    public var generatedAt: Date
+
+    public init(
+        phase: String,
+        host: String,
+        port: UInt16,
+        username: String,
+        authentication: String,
+        hostKeyPolicy: String,
+        metadata: [String: String] = [:],
+        recentEvents: [SSHLogEvent] = [],
+        generatedAt: Date = Date()
+    )
+}
+</code></pre>
+<p>The initializer applies the same redaction policy to <code>metadata</code> and the embedded <code>recentEvents</code>.</p>
+
+<h2 id="SSHPortLatencyProbe">SSHPortLatencyProbe</h2>
+<pre><code class="language-swift">public enum SSHPortLatencyProbe {
+    public static func measure(
+        configuration: SSHClientConfiguration,
+        serviceCommand: String = "true"
+    ) async throws -&gt; SSHPortLatencyReport
+}
+</code></pre>
+<p>Async-first; a callback overload exists (<code>callbackQueue:</code> + <code>completion:</code>) for callers that need it.</p>
+
+<h2 id="SSHPortLatencyReport">SSHPortLatencyReport</h2>
+<pre><code class="language-swift">public struct SSHPortLatencyReport: Equatable, Sendable {
+    public var host: String
+    public var port: UInt16
+    public var route: SSHPortLatencyRoute
+    public var connectDuration: TimeInterval
+    public var sshServiceDuration: TimeInterval
+    public var totalDuration: TimeInterval
+}
+</code></pre>
+
+<h2 id="SSHPortLatencyRoute">SSHPortLatencyRoute</h2>
+<pre><code class="language-swift">public enum SSHPortLatencyRoute: Equatable, Sendable {
+    case direct
+    case socks5(host: String, port: UInt16)
+    case httpConnect(host: String, port: UInt16)
+    case proxyJump(host: String, port: UInt16)
+}
+</code></pre>
+
+<nav class="pager" aria-label="Sibling pages">
+  <a class="prev" href="algorithms.html">Algorithms</a>
+  <a class="parent" href="index.html">↑ API</a>
+  <a class="next" href="errors.html">Errors</a>
+</nav>
+
+<footer>
+SSHKit · <a href="https://github.com/Lakr233/SSHKit">github.com/Lakr233/SSHKit</a>
+</footer>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/highlight.min.js"
+        integrity="sha384-GdEWAbCjn+ghjX0gLx7/N1hyTVmPAjdC2OvoAA0RyNcAOhqwtT8qnbCxWle2+uJX"
+        crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/languages/swift.min.js"
+        integrity="sha384-TfALNLT6HJzZieazgsVvFM0DzFWQsgl0d7mdwPLyg1yg7XE4QwLY4jqmJRNnI1S4"
+        crossorigin="anonymous"></script>
+<script>hljs.highlightAll();</script>
+</body>
+</html>

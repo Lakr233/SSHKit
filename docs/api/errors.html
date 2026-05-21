@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>SSHKit · API · Errors</title>
+<link rel="stylesheet" href="../styles.css">
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github.min.css"
+      integrity="sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L"
+      crossorigin="anonymous"
+      media="(prefers-color-scheme: light)">
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github-dark.min.css"
+      integrity="sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH"
+      crossorigin="anonymous"
+      media="(prefers-color-scheme: dark)">
+</head>
+<body>
+<nav class="topbar" aria-label="Primary">
+  <a class="home" href="../index.html">SSHKit</a>
+  <a href="../index.html">Overview</a>
+  <a href="../guide/index.html">Guide</a>
+  <a href="index.html" aria-current="page">API</a>
+  <a href="../architecture.html">Architecture</a>
+  <a href="../objc.html">Obj-C</a>
+</nav>
+
+<main>
+<h1>Errors</h1>
+
+<h2 id="SSHKitError">SSHKitError</h2>
+<pre><code class="language-swift">public struct SSHKitError: Error, Equatable, LocalizedError, Sendable {
+    public var code: Int
+    public var message: String
+
+    public init(code: Int, message: String)
+    public var errorDescription: String? { get }
+}
+
+public typealias SSHError = SSHKitError
+</code></pre>
+<p><code>code</code> is an <code>Int</code>, not the enum, so unknown bridged errors from Obj-C still round-trip. Compare against <code>SSHKitErrorCode.X.rawValue</code> when you need to branch.</p>
+
+<h2 id="SSHKitErrorCode">SSHKitErrorCode</h2>
+<table>
+<thead><tr><th>Code</th><th>Case</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><code>unavailable</code></td><td>Operation completed without a result, or feature is unsupported.</td></tr>
+<tr><td>2</td><td><code>invalidState</code></td><td>Caller passed invalid input or violated the connection state machine.</td></tr>
+<tr><td>3</td><td><code>connectionFailed</code></td><td>TCP, proxy, or libssh transport setup failed.</td></tr>
+<tr><td>4</td><td><code>authenticationFailed</code></td><td>Server rejected the supplied credentials.</td></tr>
+<tr><td>5</td><td><code>commandFailed</code></td><td>Streamed channel / SCP protocol broke. Not used for command non-zero exit &mdash; that is reported via <code>SSHCommandResult.exitStatus</code>.</td></tr>
+<tr><td>6</td><td><code>hostKeyVerificationFailed</code></td><td>Host key did not match the active <code>SSHHostKeyPolicy</code>.</td></tr>
+<tr><td>7</td><td><code>cancelled</code></td><td>Operation was cancelled via Task cancellation or <code>close()</code>.</td></tr>
+<tr><td>8</td><td><code>sftpFailure</code></td><td>Generic SFTP failure not covered by the cases below.</td></tr>
+<tr><td>9</td><td><code>sftpFileNotFound</code></td><td>SFTP server returned a "no such file" status.</td></tr>
+<tr><td>10</td><td><code>sftpPermissionDenied</code></td><td>SFTP server returned a permission-denied status.</td></tr>
+<tr><td>11</td><td><code>sftpNoSpace</code></td><td>SFTP server returned a no-space status.</td></tr>
+</tbody>
+</table>
+
+<nav class="pager" aria-label="Sibling pages">
+  <a class="prev" href="logging-diagnostics.html">Logging &amp; diagnostics</a>
+  <a class="parent" href="index.html">↑ API</a>
+  <a class="next" href="index.html">API hub</a>
+</nav>
+
+<footer>
+SSHKit · <a href="https://github.com/Lakr233/SSHKit">github.com/Lakr233/SSHKit</a>
+</footer>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/highlight.min.js"
+        integrity="sha384-GdEWAbCjn+ghjX0gLx7/N1hyTVmPAjdC2OvoAA0RyNcAOhqwtT8qnbCxWle2+uJX"
+        crossorigin="anonymous"></script>
+<script>hljs.highlightAll();</script>
+</body>
+</html>

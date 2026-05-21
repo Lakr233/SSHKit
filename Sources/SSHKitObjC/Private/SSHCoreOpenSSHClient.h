@@ -24,6 +24,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (instancetype)initWithConfiguration:(SSHKitConfiguration *)configuration worker:(SSHCoreSessionWorker *)worker;
 - (BOOL)verifyConnectionWithError:(NSError **)error;
 - (nullable SSHKitAuthenticationDiscoveryResult *)discoverAuthenticationMethodsWithError:(NSError **)error;
+- (nullable SSHKitHostKeyDiscoveryResult *)discoverHostKeyWithError:(NSError **)error;
 - (nullable SSHKitCommandResult *)executeCommand:(NSString *)command error:(NSError **)error;
 - (nullable SSHKitCommandResult *)executePTYCommand:(NSString *)command error:(NSError **)error;
 - (nullable SSHKitCommand *)openCommand:(NSString *)command

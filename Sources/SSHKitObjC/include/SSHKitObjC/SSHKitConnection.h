@@ -76,6 +76,18 @@ typedef NS_ENUM(NSInteger, SSHKitAuthenticationMethod) {
 
 @end
 
+@interface SSHKitHostKeyDiscoveryResult : NSObject
+
+@property (nonatomic, copy, readonly) NSString *host;
+@property (nonatomic, readonly) uint16_t port;
+@property (nonatomic, copy, readonly) NSString *fingerprint;
+
+- (instancetype)initWithHost:(NSString *)host
+                        port:(uint16_t)port
+                 fingerprint:(NSString *)fingerprint;
+
+@end
+
 typedef NS_ENUM(NSInteger, SSHKitCommandEventKind) {
     SSHKitCommandEventKindStandardOutput = 0,
     SSHKitCommandEventKindStandardError = 1,
@@ -211,6 +223,7 @@ typedef void (^SSHKitSFTPCompletion)(SSHKitSFTPClient *_Nullable client, NSError
 typedef void (^SSHKitTunnelChannelCompletion)(SSHKitTunnelChannel *_Nullable channel, NSError *_Nullable error);
 typedef void (^SSHKitPortForwardCompletion)(SSHKitPortForward *_Nullable forward, NSError *_Nullable error);
 typedef void (^SSHKitAuthenticationDiscoveryCompletion)(SSHKitAuthenticationDiscoveryResult *_Nullable result, NSError *_Nullable error);
+typedef void (^SSHKitHostKeyDiscoveryCompletion)(SSHKitHostKeyDiscoveryResult *_Nullable result, NSError *_Nullable error);
 
 @interface SSHKitConnection : NSObject
 
@@ -220,6 +233,7 @@ typedef void (^SSHKitAuthenticationDiscoveryCompletion)(SSHKitAuthenticationDisc
 - (instancetype)initWithConfiguration:(SSHKitConfiguration *)configuration;
 - (void)connectWithCompletion:(SSHKitCompletion)completion;
 - (void)discoverAuthenticationMethodsWithCompletion:(SSHKitAuthenticationDiscoveryCompletion)completion;
+- (void)discoverHostKeyWithCompletion:(SSHKitHostKeyDiscoveryCompletion)completion;
 - (void)executeCommand:(NSString *)command completion:(SSHKitCommandCompletion)completion;
 - (void)executePTYCommand:(NSString *)command completion:(SSHKitCommandCompletion)completion;
 - (void)openCommand:(NSString *)command

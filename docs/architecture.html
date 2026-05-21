@@ -21,8 +21,8 @@
 <nav class="topbar" aria-label="Primary">
   <a class="home" href="index.html">SSHKit</a>
   <a href="index.html">Overview</a>
-  <a href="guide.html">Guide</a>
-  <a href="api.html">API</a>
+  <a href="guide/index.html">Guide</a>
+  <a href="api/index.html">API</a>
   <a href="architecture.html" aria-current="page">Architecture</a>
   <a href="objc.html">Obj-C</a>
 </nav>
@@ -117,7 +117,7 @@ SSHKit        Swift    async/await + callback API, typed errors, Sendable value 
 <li><strong>Debug builds.</strong> Invalid object state crashes. Swift uses <code>preconditionFailure</code>; Obj-C uses <code>NSParameterAssert</code>, <code>NSAssert</code>, or <code>NSInvalidArgumentException</code>. Impossible libssh states crash too.</li>
 <li><strong>Release builds.</strong> Runtime failures surface as typed errors on throwing or callback APIs (<code>SSHKitError</code> / <code>NSError</code>). Closed-object use surfaces as a typed error rather than a crash. <code>close()</code> stays idempotent.</li>
 </ul>
-<p>Runtime failures &mdash; network loss, authentication rejection, host-key mismatch, server disconnect, protocol errors, SFTP status, command non-zero exit &mdash; are <em>always</em> typed errors, never crashes. Crashes are reserved for the things you can fix in your own code.</p>
+<p>Runtime failures &mdash; network loss, authentication rejection, host-key mismatch, server disconnect, protocol errors, SFTP status mappings &mdash; are <em>always</em> typed errors, never crashes. Crashes are reserved for the things you can fix in your own code. Command non-zero exit is <em>not</em> an error: <code>execute</code> returns an <code>SSHCommandResult</code> with the exit status; inspect it.</p>
 
 <h2 id="trust">Host trust storage</h2>
 <p>Host trust is explicit and injectable. <code>SSHHostKeyPolicy</code> covers the four ways to validate the server&rsquo;s key:</p>

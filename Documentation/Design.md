@@ -98,6 +98,13 @@ Swift async APIs are the primary application surface:
 
 ```swift
 let trustStore = SSHKeychainHostTrustStore(service: "wiki.qaq.sshkit")
+let discovered = try await SSHClient.discoverHostKey(configuration: .init(
+    host: "example.com"
+))
+
+// Present discovered.fingerprint in the app UI, then save after user approval.
+try trustStore.saveFingerprint(discovered.fingerprint, host: discovered.host, port: discovered.port)
+
 let configuration = SSHClient.Configuration(
     host: "example.com",
     username: "deploy",
@@ -316,7 +323,9 @@ wiki.qaq.sshkit
 
 The default store uses Keychain-backed persistence. Applications may inject any `SSHHostTrustStore` implementation. If a trust store cannot load a trusted fingerprint or has no entry for the host and port, connection setup returns a host-key verification error.
 
-`pinnedFingerprint` compares the server's SHA-256 host-key fingerprint directly. `insecureAcceptAnyHostKey` is an explicit policy that emits a warning log event and exposes the server fingerprint on the returned connection.
+`SSHClient.discoverHostKey` performs a transport-only connection and returns the server's SHA-256 host-key fingerprint. Applications can present that fingerprint in UI, save it to a trust store after approval, and then connect with `.trustStore`.
+
+`pinnedFingerprint` compares the server's SHA-256 host-key fingerprint directly. `insecureAcceptAnyHostKey` is an explicit connection policy that emits a warning log event and exposes the server fingerprint on the returned connection.
 
 ## Diagnostics
 

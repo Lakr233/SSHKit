@@ -2768,8 +2768,32 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
                message:@"SSH authentication discovery succeeded."
               metadata:@{@"methodCount": [NSString stringWithFormat:@"%lu", (unsigned long)methods.count]}];
     return [[SSHKitAuthenticationDiscoveryResult alloc] initWithMethods:methods
-                                                            issueBanner:issueBannerString
-                                                           serverBanner:SSHCoreNullableStringFromCString(serverBanner)];
+	                                                            issueBanner:issueBannerString
+	                                                           serverBanner:SSHCoreNullableStringFromCString(serverBanner)];
+}
+
+- (nullable SSHKitHostKeyDiscoveryResult *)discoverHostKeyWithError:(NSError **)error {
+    [self emitLogLevel:SSHKitLogLevelInfo phase:@"hostKeyDiscovery" message:@"SSH host key discovery started." metadata:@{}];
+    if (![self connectLibSSHSessionForHostKeyDiscoveryWithError:error]) {
+        return nil;
+    }
+
+    NSString *fingerprint = self.hostKeySHA256Fingerprint;
+    if (fingerprint.length == 0) {
+        if (error) {
+            *error = SSHKitMakeError(SSHKitErrorCodeHostKeyVerificationFailed, @"SSH host key discovery completed without a fingerprint.");
+        }
+        [self emitLogLevel:SSHKitLogLevelError phase:@"hostKeyDiscovery" message:@"SSH host key discovery failed." metadata:@{}];
+        return nil;
+    }
+
+    [self emitLogLevel:SSHKitLogLevelInfo
+                 phase:@"hostKeyDiscovery"
+               message:@"SSH host key discovery succeeded."
+              metadata:@{@"fingerprint": fingerprint}];
+    return [[SSHKitHostKeyDiscoveryResult alloc] initWithHost:self.configuration.host
+                                                        port:self.configuration.port
+                                                 fingerprint:fingerprint];
 }
 
 - (nullable SSHKitCommandResult *)executeCommand:(NSString *)command error:(NSError **)error {
@@ -3284,6 +3308,14 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
 }
 
 - (BOOL)connectLibSSHSessionWithoutAuthenticationWithError:(NSError **)error {
+    return [self connectLibSSHSessionWithoutAuthenticationVerifyingHostKey:YES error:error];
+}
+
+- (BOOL)connectLibSSHSessionForHostKeyDiscoveryWithError:(NSError **)error {
+    return [self connectLibSSHSessionWithoutAuthenticationVerifyingHostKey:NO error:error];
+}
+
+- (BOOL)connectLibSSHSessionWithoutAuthenticationVerifyingHostKey:(BOOL)verifyHostKey error:(NSError **)error {
     [self emitLogLevel:SSHKitLogLevelInfo phase:@"connect" message:@"SSH connect started." metadata:@{}];
     if ([self isTaskCancelled]) {
         if (error) {
@@ -3349,9 +3381,21 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
         return NO;
     }
 
-    if (![self verifyLibSSHHostKeyForSession:session error:error]) {
-        [self clearLibSSHSession:session];
-        return NO;
+    if (verifyHostKey) {
+        if (![self verifyLibSSHHostKeyForSession:session error:error]) {
+            [self clearLibSSHSession:session];
+            return NO;
+        }
+    } else {
+        NSString *fingerprint = SSHCoreSHA256FingerprintForSession(session);
+        self.hostKeySHA256Fingerprint = fingerprint;
+        if (fingerprint.length == 0) {
+            if (error) {
+                *error = SSHKitMakeError(SSHKitErrorCodeHostKeyVerificationFailed, @"Unable to read server host key fingerprint.");
+            }
+            [self clearLibSSHSession:session];
+            return NO;
+        }
     }
 
     [self emitLogLevel:SSHKitLogLevelInfo phase:@"connect" message:@"SSH transport connect succeeded." metadata:@{}];

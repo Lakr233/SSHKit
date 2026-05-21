@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>SSHKit · API · Commands &amp; shell</title>
+<link rel="stylesheet" href="../styles.css">
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github.min.css"
+      integrity="sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L"
+      crossorigin="anonymous"
+      media="(prefers-color-scheme: light)">
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github-dark.min.css"
+      integrity="sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH"
+      crossorigin="anonymous"
+      media="(prefers-color-scheme: dark)">
+</head>
+<body>
+<nav class="topbar" aria-label="Primary">
+  <a class="home" href="../index.html">SSHKit</a>
+  <a href="../index.html">Overview</a>
+  <a href="../guide/index.html">Guide</a>
+  <a href="index.html" aria-current="page">API</a>
+  <a href="../architecture.html">Architecture</a>
+  <a href="../objc.html">Obj-C</a>
+</nav>
+
+<main>
+<h1>Commands &amp; shell</h1>
+<nav class="on-this-page" aria-label="On this page">
+  <strong>On this page:</strong>
+  <a href="#SSHCommand">SSHCommand</a>
+  <a href="#SSHCommandEvent">SSHCommandEvent</a>
+  <a href="#SSHCommandResult">SSHCommandResult</a>
+  <a href="#SSHShell">SSHShell</a>
+  <a href="#SSHShellEvent">SSHShellEvent</a>
+</nav>
+
+<h2 id="SSHCommand">SSHCommand</h2>
+<pre><code class="language-swift">public final class SSHCommand: @unchecked Sendable {
+    public let events: AsyncStream&lt;SSHCommandEvent&gt;
+
+    public func write(_ data: Data) async throws
+    public func write(_ string: String, encoding: String.Encoding = .utf8) async throws
+    public func sendEOF() async throws
+    public func close() async throws
+}
+</code></pre>
+<p>Callback overloads exist for <code>write(_ data:)</code>, <code>sendEOF</code>, and <code>close</code>.</p>
+
+<h2 id="SSHCommandEvent">SSHCommandEvent</h2>
+<pre><code class="language-swift">public enum SSHCommandEvent: Equatable, Sendable {
+    case standardOutput(Data)
+    case standardError(Data)
+    case closed(Int32, exitSignal: String? = nil)
+}
+</code></pre>
+
+<h2 id="SSHCommandResult">SSHCommandResult</h2>
+<pre><code class="language-swift">public struct SSHCommandResult: Equatable, Sendable {
+    public var standardOutput: Data
+    public var standardError: Data
+    public var exitStatus: Int32
+    public var exitSignal: String?
+
+    public init(
+        standardOutput: Data,
+        standardError: Data,
+        exitStatus: Int32,
+        exitSignal: String? = nil
+    )
+}
+</code></pre>
+
+<h2 id="SSHShell">SSHShell</h2>
+<pre><code class="language-swift">public final class SSHShell: @unchecked Sendable {
+    public func write(_ data: Data) async throws
+    public func write(_ string: String, encoding: String.Encoding = .utf8) async throws
+    public func resize(columns: UInt16, rows: UInt16) async throws
+    public func close() async throws
+}
+</code></pre>
+<p>Callback overloads exist for <code>write(_ data:)</code>, <code>resize</code>, and <code>close</code>.</p>
+
+<h2 id="SSHShellEvent">SSHShellEvent</h2>
+<pre><code class="language-swift">public enum SSHShellEvent: Equatable, Sendable {
+    case standardOutput(Data)
+    case standardError(Data)  // reserved; PTY-backed shells merge stderr into stdout
+    case closed(Int32)
+}
+</code></pre>
+
+<nav class="pager" aria-label="Sibling pages">
+  <a class="prev" href="client-connection.html">Client &amp; connection</a>
+  <a class="parent" href="index.html">↑ API</a>
+  <a class="next" href="sftp-scp.html">SFTP &amp; SCP</a>
+</nav>
+
+<footer>
+SSHKit · <a href="https://github.com/Lakr233/SSHKit">github.com/Lakr233/SSHKit</a>
+</footer>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/highlight.min.js"
+        integrity="sha384-GdEWAbCjn+ghjX0gLx7/N1hyTVmPAjdC2OvoAA0RyNcAOhqwtT8qnbCxWle2+uJX"
+        crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/languages/swift.min.js"
+        integrity="sha384-TfALNLT6HJzZieazgsVvFM0DzFWQsgl0d7mdwPLyg1yg7XE4QwLY4jqmJRNnI1S4"
+        crossorigin="anonymous"></script>
+<script>hljs.highlightAll();</script>
+</body>
+</html>

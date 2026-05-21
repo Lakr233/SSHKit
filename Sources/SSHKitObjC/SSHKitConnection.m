@@ -60,6 +60,26 @@
 
 @end
 
+@implementation SSHKitHostKeyDiscoveryResult
+
+- (instancetype)initWithHost:(NSString *)host
+                        port:(uint16_t)port
+                 fingerprint:(NSString *)fingerprint {
+    NSParameterAssert(host.length > 0);
+    NSParameterAssert(port > 0);
+    NSParameterAssert(fingerprint.length > 0);
+
+    self = [super init];
+    if (self) {
+        _host = [host copy];
+        _port = port;
+        _fingerprint = [fingerprint copy];
+    }
+    return self;
+}
+
+@end
+
 @implementation SSHKitSFTPEntry
 
 - (instancetype)initWithFilename:(NSString *)filename {
@@ -516,6 +536,23 @@
     }];
 }
 
+- (void)discoverHostKeyWithCompletion:(SSHKitHostKeyDiscoveryCompletion)completion {
+    [self.worker async:^{
+        if (self.worker.state != SSHCoreSessionStateIdle) {
+            NSError *error = SSHKitMakeError(SSHKitErrorCodeInvalidState, @"SSH host key discovery can only start from an idle session.");
+            [self completeHostKeyDiscoveryOnDefaultQueue:completion result:nil error:error];
+            return;
+        }
+
+        NSError *error = nil;
+        [self.worker transitionToState:SSHCoreSessionStateConnecting];
+        SSHKitHostKeyDiscoveryResult *result = [self.client discoverHostKeyWithError:&error];
+        [self.client closeSession];
+        [self.worker transitionToState:SSHCoreSessionStateClosed];
+        [self completeHostKeyDiscoveryOnDefaultQueue:completion result:result error:error];
+    }];
+}
+
 - (void)executeCommand:(NSString *)command completion:(SSHKitCommandCompletion)completion {
     NSParameterAssert(command.length > 0);
     [self executeCommand:command requestPTY:NO completion:completion];
@@ -842,6 +879,14 @@
 - (void)completeAuthenticationDiscoveryOnDefaultQueue:(SSHKitAuthenticationDiscoveryCompletion)completion
                                                result:(SSHKitAuthenticationDiscoveryResult *)result
                                                 error:(NSError *)error {
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
+        completion(result, error);
+    });
+}
+
+- (void)completeHostKeyDiscoveryOnDefaultQueue:(SSHKitHostKeyDiscoveryCompletion)completion
+                                        result:(SSHKitHostKeyDiscoveryResult *)result
+                                         error:(NSError *)error {
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
         completion(result, error);
     });

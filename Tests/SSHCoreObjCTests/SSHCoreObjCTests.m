@@ -58,6 +58,16 @@
     XCTAssertNotNil([SSHKitClient class]);
 }
 
+- (void)testObjectiveCHostKeyDiscoveryResultExposesFields {
+    SSHKitHostKeyDiscoveryResult *result = [[SSHKitHostKeyDiscoveryResult alloc] initWithHost:@"example.com"
+                                                                                         port:2222
+                                                                                  fingerprint:@"SHA256:abc123"];
+
+    XCTAssertEqualObjects(result.host, @"example.com");
+    XCTAssertEqual(result.port, 2222);
+    XCTAssertEqualObjects(result.fingerprint, @"SHA256:abc123");
+}
+
 - (void)testObjectiveCLogRecorderBoundsEvents {
     SSHKitLogRecorder *recorder = [[SSHKitLogRecorder alloc] initWithCapacity:2];
     [recorder recordEvent:[[SSHKitLogEvent alloc] initWithLevel:SSHKitLogLevelInfo phase:@"connect" message:@"one" metadata:@{}]];

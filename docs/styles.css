@@ -155,6 +155,65 @@ footer {
   font-size: 13px;
 }
 
+nav.pager {
+  margin-top: 48px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 14px;
+}
+
+nav.pager .prev::before { content: "← "; }
+nav.pager .next::after { content: " →"; }
+nav.pager .parent { color: var(--muted); }
+nav.pager a { text-decoration: none; }
+nav.pager a:hover { text-decoration: underline; }
+
+nav.on-this-page {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0 0 24px;
+  padding: 8px 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+nav.on-this-page strong {
+  color: var(--fg);
+  font-weight: 600;
+  margin-right: 6px;
+}
+
+nav.on-this-page a { margin-right: 12px; }
+
+ul.hub-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 24px;
+}
+
+ul.hub-list li {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+ul.hub-list li a {
+  font-weight: 600;
+  font-size: 15px;
+  text-decoration: none;
+}
+
+ul.hub-list li a:hover { text-decoration: underline; }
+
+ul.hub-list .summary {
+  display: block;
+  color: var(--muted);
+  font-weight: 400;
+  margin-top: 2px;
+  font-size: 14px;
+}
+
 @media (max-width: 560px) {
   .anchor-list { column-count: 1; }
   nav.topbar { gap: 12px; }

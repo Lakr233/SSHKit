@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>SSHKit · Forwarding &amp; tunnels</title>
+<link rel="stylesheet" href="../styles.css">
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github.min.css"
+      integrity="sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L"
+      crossorigin="anonymous"
+      media="(prefers-color-scheme: light)">
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github-dark.min.css"
+      integrity="sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH"
+      crossorigin="anonymous"
+      media="(prefers-color-scheme: dark)">
+</head>
+<body>
+<nav class="topbar" aria-label="Primary">
+  <a class="home" href="../index.html">SSHKit</a>
+  <a href="../index.html">Overview</a>
+  <a href="index.html" aria-current="page">Guide</a>
+  <a href="../api/index.html">API</a>
+  <a href="../architecture.html">Architecture</a>
+  <a href="../objc.html">Obj-C</a>
+</nav>
+
+<main>
+<h1>Forwarding &amp; tunnels</h1>
+<nav class="on-this-page" aria-label="On this page">
+  <strong>On this page:</strong>
+  <a href="#direct">Direct TCP</a>
+  <a href="#local">Local (-L)</a>
+  <a href="#remote">Remote (-R)</a>
+  <a href="#dynamic">Dynamic SOCKS (-D)</a>
+</nav>
+
+<p>All four of these dedicate an entire <code>SSHConnection</code> to the operation; while one is active, the connection cannot host any other job.</p>
+
+<h2 id="direct">Direct TCP channel</h2>
+<pre><code class="language-swift">let channel = try await connection.openDirectTCPChannel(
+    host: "10.0.0.5",
+    port: 6379
+)
+try await channel.write(Data("PING\r\n".utf8))
+let reply = try await channel.read(maximumLength: 64 * 1024)
+try await channel.close()
+</code></pre>
+<p>Use this when you have a target host+port reachable from the SSH server and you want to drive the protocol yourself.</p>
+
+<h2 id="local">Local forward (-L)</h2>
+<p>The SSH server forwards traffic from a local listener to a remote target.</p>
+<pre><code class="language-swift">let forward = try await connection.startLocalForward(
+    localHost: "127.0.0.1",
+    localPort: 0,        // 0 = let the kernel pick
+    remoteHost: "db.internal",
+    remotePort: 5432
+)
+print("listening on \(forward.boundHost):\(forward.boundPort)")
+try await forward.close()
+</code></pre>
+
+<h2 id="remote">Remote forward (-R)</h2>
+<p>The SSH server listens on its side and forwards connections back to the local target.</p>
+<pre><code class="language-swift">let forward = try await connection.startRemoteForward(
+    remoteHost: "127.0.0.1",
+    remotePort: 0,
+    localHost: "127.0.0.1",
+    localPort: 8080
+)
+</code></pre>
+
+<h2 id="dynamic">Dynamic SOCKS (-D)</h2>
+<p>SSHKit runs a SOCKS5 server on a local bind that routes new TCP connections through the SSH session.</p>
+<pre><code class="language-swift">let socks = try await connection.startDynamicForward(
+    localHost: "127.0.0.1",
+    localPort: 0,
+    username: nil,
+    password: nil
+)
+print("SOCKS5 endpoint: \(socks.boundHost):\(socks.boundPort)")
+</code></pre>
+<p><code>username</code> and <code>password</code> are for SOCKS5 client authentication if you want the local SOCKS server to require them. All forward objects expose the actually-bound host and port via <code>boundHost</code> / <code>boundPort</code> &mdash; useful when you passed <code>0</code>.</p>
+
+<nav class="pager" aria-label="Sibling pages">
+  <a class="prev" href="scp.html">SCP</a>
+  <a class="parent" href="index.html">↑ Guide</a>
+  <a class="next" href="proxy.html">Proxy routes</a>
+</nav>
+
+<footer>
+SSHKit · <a href="https://github.com/Lakr233/SSHKit">github.com/Lakr233/SSHKit</a>
+</footer>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/highlight.min.js"
+        integrity="sha384-GdEWAbCjn+ghjX0gLx7/N1hyTVmPAjdC2OvoAA0RyNcAOhqwtT8qnbCxWle2+uJX"
+        crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/languages/swift.min.js"
+        integrity="sha384-TfALNLT6HJzZieazgsVvFM0DzFWQsgl0d7mdwPLyg1yg7XE4QwLY4jqmJRNnI1S4"
+        crossorigin="anonymous"></script>
+<script>hljs.highlightAll();</script>
+</body>
+</html>

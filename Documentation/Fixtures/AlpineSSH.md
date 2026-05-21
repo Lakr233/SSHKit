@@ -28,7 +28,7 @@ export SSHKIT_LIVE_REMOTE_SSHD_PORT="22"
 # export SSHKIT_DROPBEAR_KNOWN_HOSTS="<known-hosts-entry>"
 ```
 
-Each known-hosts value should contain one complete OpenSSH known-hosts line. `SSHKIT_LIVE_PRIVATE_KEY` should contain a private key accepted by the Alpine fixture user. `SSHKIT_LIVE_REMOTE_SSHD_PORT` is optional and defaults to `22`; it is the SSH port visible from inside the fixture host for direct TCP, local forward, and dynamic SOCKS tests. The legacy RSA fixture uses `SSHAlgorithmProfile.legacyRSA`, password authentication, known-host verification, and a real exec channel. The Dropbear fixture uses password authentication, known-host verification, and a real exec channel.
+Each known-hosts value should contain one or more complete OpenSSH known-hosts lines (one per host-key type). Listing every key type the server advertises (typically `ssh-rsa`, `ecdsa-sha2-nistp256`, `ssh-ed25519`) keeps verification stable across libssh host-key preference changes and across profiles like `legacyRSA`. `SSHKIT_LIVE_PRIVATE_KEY` should contain a private key accepted by the Alpine fixture user. `SSHKIT_LIVE_REMOTE_SSHD_PORT` is optional and defaults to `22`; it is the SSH port visible from inside the fixture host for direct TCP, local forward, and dynamic SOCKS tests. The legacy RSA fixture uses `SSHAlgorithmProfile.legacyRSA`, password authentication, known-host verification, and a real exec channel. The Dropbear fixture uses password authentication, known-host verification, and a real exec channel.
 
 ## Current Alpine Container Topology
 

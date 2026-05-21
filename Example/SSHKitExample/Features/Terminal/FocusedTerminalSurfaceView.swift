@@ -12,48 +12,58 @@ import SwiftUI
 // The net effect when embedded in SwiftUI: hardware keystrokes are
 // silently dropped.
 //
-// This wrapper takes initial focus on the platforms where it is safe to do
-// so unprompted (Mac Catalyst, native macOS, iPad with a hardware keyboard).
-// On iPhone we deliberately leave focus alone, because forcing focus would
-// pop the software keyboard the instant the screen appears — there the
-// library's `touchesBegan` rescue is the correct entry point.
+// This wrapper takes initial focus when a hardware keyboard is the
+// expected input device (Mac Catalyst, native macOS, iPad/iPhone with a
+// paired hardware keyboard). On touch-only devices we leave focus alone
+// because forcing focus would pop the software keyboard with no user
+// gesture — let the library's `touchesBegan` rescue handle that.
 //
-// We re-check focus on every `update*` rather than gating with a one-shot
-// flag, so detach-then-reattach (e.g. moving between tabs of a sheet that
-// hosts this view) refocuses cleanly. SwiftUI only calls `update*` when an
-// observed input changes, so this does not fight a deliberate focus move
-// within the same view tree.
+// On UIKit we also observe `GCKeyboard` connect/disconnect notifications
+// while the view is attached: pairing a keyboard mid-session promotes the
+// terminal to first responder; unpairing one resigns focus so iOS doesn't
+// present the software keyboard.
 
 #if canImport(UIKit)
+    import GameController
     import UIKit
 
     @MainActor
     struct FocusedTerminalSurfaceView: UIViewRepresentable {
         let context: TerminalViewState
 
-        func makeUIView(context _: Context) -> TerminalView {
+        func makeCoordinator() -> Coordinator {
+            Coordinator()
+        }
+
+        func makeUIView(context viewContext: Context) -> TerminalView {
             let view = TerminalView(frame: .zero)
             view.delegate = context
             view.controller = context.controller
             view.configuration = context.configuration
+            viewContext.coordinator.attach(to: view)
             // Initial focus belt-and-braces: SwiftUI calls updateUIView
             // shortly after attachment, but we don't want first-key-press to
             // depend on that contract — schedule a deferred focus attempt
             // that re-checks the window before acting.
-            takeFocusIfAppropriate(view)
+            Self.takeFocusIfAppropriate(view)
             return view
         }
 
-        func updateUIView(_ view: TerminalView, context _: Context) {
+        func updateUIView(_ view: TerminalView, context viewContext: Context) {
             if view.controller !== context.controller {
                 view.controller = context.controller
             }
             view.configuration = context.configuration
-            takeFocusIfAppropriate(view)
+            viewContext.coordinator.attach(to: view)
+            Self.takeFocusIfAppropriate(view)
         }
 
-        private func takeFocusIfAppropriate(_ view: TerminalView) {
-            guard Self.shouldAutoTakeFocus else { return }
+        static func dismantleUIView(_: TerminalView, coordinator: Coordinator) {
+            coordinator.detach()
+        }
+
+        fileprivate static func takeFocusIfAppropriate(_ view: TerminalView) {
+            guard shouldAutoTakeFocus else { return }
             // No synchronous window/responder gate here: this is also called
             // from makeUIView where the view has no window yet. The async
             // closure re-checks both conditions before acting, so a too-early
@@ -65,15 +75,69 @@ import SwiftUI
         }
 
         /// Auto-focus is appropriate when there's a hardware keyboard
-        /// expectation. On iPhone the software keyboard would appear with no
-        /// user gesture, which is a UX regression versus the library's own
-        /// example apps; let `touchesBegan` handle it there.
-        private static var shouldAutoTakeFocus: Bool {
+        /// expectation. On a touch-only device (iPhone, iPad without a paired
+        /// hardware keyboard) forcing focus would present the software
+        /// keyboard with zero user gesture — a UX regression versus the
+        /// library's own example apps. Let `touchesBegan` handle those.
+        fileprivate static var shouldAutoTakeFocus: Bool {
             #if targetEnvironment(macCatalyst)
                 return true
             #else
-                return UIDevice.current.userInterfaceIdiom != .phone
+                return GCKeyboard.coalesced != nil
             #endif
+        }
+
+        /// Observes hardware-keyboard pair/unpair while the view is attached.
+        ///
+        /// - Pair during session → promote terminal to first responder so the
+        ///   first keystroke lands without requiring a tap.
+        /// - Unpair during session → resign first responder so iOS does not
+        ///   immediately present the software keyboard.
+        @MainActor
+        final class Coordinator {
+            private weak var view: TerminalView?
+            private var connectToken: NSObjectProtocol?
+            private var disconnectToken: NSObjectProtocol?
+
+            func attach(to view: TerminalView) {
+                self.view = view
+                #if !targetEnvironment(macCatalyst)
+                    guard connectToken == nil, disconnectToken == nil else { return }
+                    let center = NotificationCenter.default
+                    connectToken = center.addObserver(
+                        forName: .GCKeyboardDidConnect,
+                        object: nil,
+                        queue: .main,
+                    ) { [weak self] _ in
+                        MainActor.assumeIsolated { self?.handleKeyboardChange() }
+                    }
+                    disconnectToken = center.addObserver(
+                        forName: .GCKeyboardDidDisconnect,
+                        object: nil,
+                        queue: .main,
+                    ) { [weak self] _ in
+                        MainActor.assumeIsolated { self?.handleKeyboardChange() }
+                    }
+                #endif
+            }
+
+            func detach() {
+                let center = NotificationCenter.default
+                if let connectToken { center.removeObserver(connectToken) }
+                if let disconnectToken { center.removeObserver(disconnectToken) }
+                connectToken = nil
+                disconnectToken = nil
+                view = nil
+            }
+
+            private func handleKeyboardChange() {
+                guard let view, view.window != nil else { return }
+                if GCKeyboard.coalesced != nil {
+                    if !view.isFirstResponder { view.becomeFirstResponder() }
+                } else {
+                    if view.isFirstResponder { _ = view.resignFirstResponder() }
+                }
+            }
         }
     }
 

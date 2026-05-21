@@ -62,6 +62,12 @@ struct CommandView: View {
             .navigationBarTitleDisplayMode(.inline)
         #endif
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    modePicker
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    outputPicker
+                }
                 ToolbarItem(placement: .primaryAction) {
                     runButton
                 }
@@ -85,30 +91,31 @@ struct CommandView: View {
                         .fill(.quaternary.opacity(0.5)),
                 )
                 .accessibilityIdentifier("SSHKitExample.Command.Field")
-
-            Picker("Mode", selection: $mode) {
-                ForEach(Mode.allCases) { mode in
-                    Text(mode.title).tag(mode)
-                }
-            }
-            .pickerStyle(.segmented)
-            .disabled(isRunning)
         }
         .padding()
     }
 
+    private var modePicker: some View {
+        Picker("Mode", selection: $mode) {
+            ForEach(Mode.allCases) { mode in
+                Text(mode.title).tag(mode)
+            }
+        }
+        .pickerStyle(.segmented)
+        .disabled(isRunning)
+    }
+
+    private var outputPicker: some View {
+        Picker("Output", selection: $selectedStream) {
+            ForEach(OutputStream.allCases) { stream in
+                Label(stream.title, systemImage: stream.systemImage).tag(stream)
+            }
+        }
+        .pickerStyle(.segmented)
+    }
+
     private var outputArea: some View {
         VStack(spacing: 0) {
-            Picker("Output", selection: $selectedStream) {
-                ForEach(OutputStream.allCases) { stream in
-                    Label(stream.title, systemImage: stream.systemImage).tag(stream)
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal)
-            .padding(.top, 12)
-            .padding(.bottom, 8)
-
             ScrollView {
                 let body = selectedStream == .stdout ? stdoutText : stderrText
                 if body.isEmpty {

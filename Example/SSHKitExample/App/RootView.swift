@@ -1,6 +1,7 @@
 import SwiftUI
 
 enum SidebarItem: String, Hashable, CaseIterable, Identifiable {
+    case setup
     case command
     case terminal
     case sftp
@@ -16,6 +17,7 @@ enum SidebarItem: String, Hashable, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
+        case .setup: "Setup"
         case .command: "Command"
         case .terminal: "Terminal"
         case .sftp: "SFTP"
@@ -29,6 +31,7 @@ enum SidebarItem: String, Hashable, CaseIterable, Identifiable {
 
     var systemImage: String {
         switch self {
+        case .setup: "bolt.horizontal"
         case .command: "terminal"
         case .terminal: "rectangle.inset.filled.and.cursorarrow"
         case .sftp: "folder"
@@ -42,6 +45,7 @@ enum SidebarItem: String, Hashable, CaseIterable, Identifiable {
 
     var section: SidebarSection {
         switch self {
+        case .setup: .connection
         case .command, .terminal: .shell
         case .sftp: .transfers
         case .portMap: .tunnels
@@ -49,9 +53,18 @@ enum SidebarItem: String, Hashable, CaseIterable, Identifiable {
         case .logs: .observability
         }
     }
+
+    /// Screens that don't require an active SSH configuration.
+    var requiresConfiguration: Bool {
+        switch self {
+        case .setup, .logs: false
+        default: true
+        }
+    }
 }
 
 enum SidebarSection: String, Hashable, CaseIterable, Identifiable {
+    case connection
     case shell
     case transfers
     case tunnels
@@ -64,6 +77,7 @@ enum SidebarSection: String, Hashable, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
+        case .connection: "Connection"
         case .shell: "Shell"
         case .transfers: "Transfers"
         case .tunnels: "Tunnels"
@@ -79,7 +93,7 @@ enum SidebarSection: String, Hashable, CaseIterable, Identifiable {
 
 struct RootView: View {
     @Environment(ConnectionStore.self) private var store
-    @State private var selection: SidebarItem? = .command
+    @State private var selection: SidebarItem? = .setup
 
     var body: some View {
         NavigationSplitView {
@@ -89,15 +103,9 @@ struct RootView: View {
             detail
         }
         .accessibilityIdentifier("SSHKitExample.Root")
-        .sheet(item: bindingForActiveSheet) { sheet in
-            switch sheet {
-            case .setup:
-                SetupConnectionView()
-                    .environment(store)
-            case let .enrollment(pending):
-                HostTrustEnrollmentView(pending: pending)
-                    .environment(store)
-            }
+        .sheet(item: bindingForPendingEnrollment) { pending in
+            HostTrustEnrollmentView(pending: pending)
+                .environment(store)
         }
         .alert(
             "Connection error",
@@ -107,6 +115,11 @@ struct RootView: View {
             Button("OK", role: .cancel) { store.lastError = nil }
         } message: { error in
             Text(error.message)
+        }
+        .onChange(of: store.configuration == nil) { _, isDisconnected in
+            if isDisconnected, let selected = selection, selected.requiresConfiguration {
+                selection = .setup
+            }
         }
     }
 
@@ -128,36 +141,30 @@ struct RootView: View {
 
     @ViewBuilder
     private var detail: some View {
-        if let item = selection, item == .logs {
-            // The log inspector is always available — it does not need an
-            // active SSH connection.
-            content(for: item)
-                .toolbar { connectToolbar }
-                .accessibilityIdentifier("SSHKitExample.Detail.\(item.rawValue)")
-        } else if store.configuration == nil {
-            ContentUnavailableView(
-                "Not connected",
-                systemImage: "network.slash",
-                description: Text("Tap Connect to set up an SSH session."),
-            )
-            .toolbar { connectToolbar }
-        } else if let item = selection {
-            content(for: item)
-                .toolbar { connectToolbar }
-                .accessibilityIdentifier("SSHKitExample.Detail.\(item.rawValue)")
+        if let item = selection {
+            if item.requiresConfiguration, store.configuration == nil {
+                ContentUnavailableView(
+                    "Not connected",
+                    systemImage: "network.slash",
+                    description: Text("Open the Setup tab in the sidebar to start an SSH session."),
+                )
+            } else {
+                content(for: item)
+                    .accessibilityIdentifier("SSHKitExample.Detail.\(item.rawValue)")
+            }
         } else {
             ContentUnavailableView(
                 "Pick a feature",
                 systemImage: "sidebar.left",
                 description: Text("Choose a screen from the sidebar."),
             )
-            .toolbar { connectToolbar }
         }
     }
 
     @ViewBuilder
     private func content(for item: SidebarItem) -> some View {
         switch item {
+        case .setup: SetupConnectionView()
         case .command: CommandView()
         case .terminal: TerminalScreen()
         case .sftp: SFTPBrowserView()
@@ -169,31 +176,16 @@ struct RootView: View {
         }
     }
 
-    @ToolbarContentBuilder
-    private var connectToolbar: some ToolbarContent {
-        ToolbarItem(placement: .primaryAction) {
-            Button {
-                store.startSetupFlow()
-            } label: {
-                Label(
-                    store.configuration == nil ? "Connect" : "Reconnect",
-                    systemImage: "bolt.horizontal",
-                )
-            }
-            .accessibilityIdentifier("SSHKitExample.Toolbar.Connect")
-        }
-    }
-
-    private var bindingForActiveSheet: Binding<ActiveSheet?> {
+    private var bindingForPendingEnrollment: Binding<PendingEnrollment?> {
         Binding(
-            get: { store.activeSheet },
-            set: { store.activeSheet = $0 },
+            get: { store.pendingEnrollment },
+            set: { store.pendingEnrollment = $0 },
         )
     }
 
     private var bindingForError: Binding<Bool> {
         Binding(
-            get: { store.lastError != nil && store.activeSheet == nil },
+            get: { store.lastError != nil && store.pendingEnrollment == nil },
             set: { newValue in if !newValue { store.lastError = nil } },
         )
     }

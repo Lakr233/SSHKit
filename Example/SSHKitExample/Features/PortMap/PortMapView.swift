@@ -38,7 +38,8 @@ struct PortMapView: View {
             }
             Section("Local bind") {
                 LabeledContent("Host") {
-                    TextField("127.0.0.1", text: $localHost)
+                    TextField("Host", text: $localHost, prompt: Text("127.0.0.1"))
+                        .labelsHidden()
                         .multilineTextAlignment(.trailing)
                         .textFieldStyle(.plain)
                         .autocorrectionDisabled()
@@ -47,7 +48,8 @@ struct PortMapView: View {
                     #endif
                 }
                 LabeledContent("Port") {
-                    TextField("0", text: $localPortString)
+                    TextField("Port", text: $localPortString, prompt: Text("0"))
+                        .labelsHidden()
                         .multilineTextAlignment(.trailing)
                         .textFieldStyle(.plain)
                     #if os(iOS)
@@ -58,7 +60,8 @@ struct PortMapView: View {
             if mode != .dynamic {
                 Section("Remote target") {
                     LabeledContent("Host") {
-                        TextField("127.0.0.1", text: $remoteHost)
+                        TextField("Host", text: $remoteHost, prompt: Text("127.0.0.1"))
+                            .labelsHidden()
                             .multilineTextAlignment(.trailing)
                             .textFieldStyle(.plain)
                             .autocorrectionDisabled()
@@ -67,7 +70,8 @@ struct PortMapView: View {
                         #endif
                     }
                     LabeledContent("Port") {
-                        TextField("22", text: $remotePortString)
+                        TextField("Port", text: $remotePortString, prompt: Text("22"))
+                            .labelsHidden()
                             .multilineTextAlignment(.trailing)
                             .textFieldStyle(.plain)
                         #if os(iOS)

@@ -72,21 +72,45 @@ final class SFTPBrowserModel {
     func open() async {
         guard sftp == nil else { return }
         AppLog.info(.sftp, "Opening SFTP session", metadata: endpointMetadata())
+        // Track *this* attempt's connection locally — if two `open()` calls
+        // interleave across the `await`s, the catch must not close another
+        // attempt's connection by reading the shared `owningConnection` field.
+        var pendingConnection: SSHConnection?
         do {
             let conn = try await AppLog.span(.sftp, "SSHClient.connect", metadata: endpointMetadata()) {
                 try await SSHClient.connect(configuration: configuration)
             }
+            pendingConnection = conn
             owningConnection = conn
             let client = try await AppLog.span(.sftp, "openSFTP", metadata: endpointMetadata()) {
                 try await conn.openSFTP()
             }
             sftp = client
+            pendingConnection = nil
             isConnected = true
             AppLog.info(.sftp, "SFTP session ready", metadata: endpointMetadata())
             await refresh()
         } catch {
+            tearDownPartialOpen(pendingConnection)
             self.error = AppLog.report(error, as: .sftp, message: "Failed to open SFTP", metadata: endpointMetadata())
             isConnected = false
+        }
+    }
+
+    /// Close a connection from a failed `open()` attempt. Only nils the
+    /// shared `owningConnection` if it still points at this attempt — so a
+    /// concurrent retry that has already replaced it stays intact.
+    private func tearDownPartialOpen(_ pending: SSHConnection?) {
+        guard let pending else { return }
+        if owningConnection === pending {
+            owningConnection = nil
+        }
+        Task { @Sendable in
+            do {
+                try await pending.close()
+            } catch {
+                AppLog.report(error, as: .sftp, message: "Partial SSH connection close failed during open() cleanup")
+            }
         }
     }
 

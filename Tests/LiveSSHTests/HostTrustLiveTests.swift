@@ -9,7 +9,7 @@ final class HostTrustLiveTests: LiveSSHTestCase {
         let fingerprint = try await discoverFixtureFingerprint(fixture: fixture)
         let connection = try await SSHClient.connect(configuration: privateKeyConfiguration(
             fixture: fixture,
-            hostKeyPolicy: .pinnedFingerprint(fingerprint)
+            hostKeyPolicy: .pinnedFingerprint(fingerprint),
         ))
 
         XCTAssertEqual(connection.hostKeyFingerprint, fingerprint)
@@ -25,7 +25,7 @@ final class HostTrustLiveTests: LiveSSHTestCase {
         do {
             let connection = try await SSHClient.connect(configuration: privateKeyConfiguration(
                 fixture: fixture,
-                hostKeyPolicy: .pinnedFingerprint(SSHHostKeyFingerprint("mismatched"))
+                hostKeyPolicy: .pinnedFingerprint(SSHHostKeyFingerprint("mismatched")),
             ))
             try await connection.close()
             XCTFail("Pinned fingerprint mismatch unexpectedly connected.")
@@ -44,7 +44,7 @@ final class HostTrustLiveTests: LiveSSHTestCase {
 
         let connection = try await SSHClient.connect(configuration: privateKeyConfiguration(
             fixture: fixture,
-            hostKeyPolicy: .trustStore(store)
+            hostKeyPolicy: .trustStore(store),
         ))
 
         XCTAssertEqual(connection.hostKeyFingerprint, fingerprint)
@@ -60,7 +60,7 @@ final class HostTrustLiveTests: LiveSSHTestCase {
         do {
             let connection = try await SSHClient.connect(configuration: privateKeyConfiguration(
                 fixture: fixture,
-                hostKeyPolicy: .trustStore(SSHMemoryHostTrustStore())
+                hostKeyPolicy: .trustStore(SSHMemoryHostTrustStore()),
             ))
             try await connection.close()
             XCTFail("Missing trust-store fingerprint unexpectedly connected.")
@@ -82,7 +82,7 @@ final class HostTrustLiveTests: LiveSSHTestCase {
 
         let connection = try await SSHClient.connect(configuration: privateKeyConfiguration(
             fixture: fixture,
-            hostKeyPolicy: .trustStore(store)
+            hostKeyPolicy: .trustStore(store),
         ))
 
         XCTAssertEqual(connection.hostKeyFingerprint, fingerprint)
@@ -101,7 +101,7 @@ final class HostTrustLiveTests: LiveSSHTestCase {
             timeout: 10,
             logHandler: { event in
                 LiveSSHLog.core(event)
-            }
+            },
         ))
         let store = SSHKeychainHostTrustStore(service: "wiki.qaq.sshkit.live.\(UUID().uuidString)")
         defer {
@@ -111,7 +111,7 @@ final class HostTrustLiveTests: LiveSSHTestCase {
 
         let connection = try await SSHClient.connect(configuration: privateKeyConfiguration(
             fixture: fixture,
-            hostKeyPolicy: .trustStore(store)
+            hostKeyPolicy: .trustStore(store),
         ))
 
         XCTAssertEqual(connection.hostKeyFingerprint, discovered.fingerprint)
@@ -125,14 +125,14 @@ final class HostTrustLiveTests: LiveSSHTestCase {
             timeout: 10,
             logHandler: { event in
                 LiveSSHLog.core(event)
-            }
+            },
         ))
         return discovered.fingerprint
     }
 
     private func privateKeyConfiguration(
         fixture: AlpineSSHFixture,
-        hostKeyPolicy: SSHHostKeyPolicy
+        hostKeyPolicy: SSHHostKeyPolicy,
     ) throws -> SSHClientConfiguration {
         try SSHClientConfiguration(
             host: fixture.host,
@@ -140,7 +140,7 @@ final class HostTrustLiveTests: LiveSSHTestCase {
             username: fixture.username,
             authentication: .privateKeyFile(path: makePrivateKeyFile(fixture: fixture)),
             hostKeyPolicy: hostKeyPolicy,
-            timeout: 10
+            timeout: 10,
         )
     }
 }

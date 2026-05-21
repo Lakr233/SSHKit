@@ -16,7 +16,7 @@ final class ProxyRouteLiveTests: LiveSSHTestCase {
         let connection = try connectThroughProxy(
             fixture: fixture,
             proxyRoute: .socks5(SSHProxyEndpoint(host: "127.0.0.1", port: proxy.port)),
-            hostKeyPolicy: .knownHostsFile(makeKnownHostsFile(fixture: fixture))
+            hostKeyPolicy: .knownHostsFile(makeKnownHostsFile(fixture: fixture)),
         )
         defer {
             try? close(connection)
@@ -37,7 +37,7 @@ final class ProxyRouteLiveTests: LiveSSHTestCase {
         let connection = try connectThroughProxy(
             fixture: fixture,
             proxyRoute: .httpConnect(SSHProxyEndpoint(host: "127.0.0.1", port: proxy.port)),
-            hostKeyPolicy: .knownHostsFile(makeKnownHostsFile(fixture: fixture))
+            hostKeyPolicy: .knownHostsFile(makeKnownHostsFile(fixture: fixture)),
         )
         defer {
             try? close(connection)
@@ -57,7 +57,7 @@ final class ProxyRouteLiveTests: LiveSSHTestCase {
             port: fixture.port,
             username: fixture.username,
             authentication: .privateKeyFile(path: privateKeyPath),
-            hostKeyPolicy: .knownHostsFile(knownHostsPath)
+            hostKeyPolicy: .knownHostsFile(knownHostsPath),
         )
         let configuration = SSHClientConfiguration(
             host: "127.0.0.1",
@@ -66,7 +66,7 @@ final class ProxyRouteLiveTests: LiveSSHTestCase {
             authentication: .privateKeyFile(path: privateKeyPath),
             hostKeyPolicy: .insecureAcceptAnyHostKey,
             timeout: 10,
-            proxyRoute: .proxyJump(jumpHost)
+            proxyRoute: .proxyJump(jumpHost),
         )
 
         let connection = try connect(configuration: configuration)
@@ -80,7 +80,7 @@ final class ProxyRouteLiveTests: LiveSSHTestCase {
     private func connectThroughProxy(
         fixture: AlpineSSHFixture,
         proxyRoute: SSHProxyRoute,
-        hostKeyPolicy: SSHHostKeyPolicy
+        hostKeyPolicy: SSHHostKeyPolicy,
     ) throws -> SSHConnection {
         let configuration = try SSHClientConfiguration(
             host: fixture.host,
@@ -89,7 +89,7 @@ final class ProxyRouteLiveTests: LiveSSHTestCase {
             authentication: .privateKeyFile(path: makePrivateKeyFile(fixture: fixture)),
             hostKeyPolicy: hostKeyPolicy,
             timeout: 10,
-            proxyRoute: proxyRoute
+            proxyRoute: proxyRoute,
         )
         return try connect(configuration: configuration)
     }
@@ -289,7 +289,7 @@ final class LoopbackProxyServer: @unchecked Sendable {
             ai_addrlen: 0,
             ai_canonname: nil,
             ai_addr: nil,
-            ai_next: nil
+            ai_next: nil,
         )
         var addresses: UnsafeMutablePointer<addrinfo>?
         guard getaddrinfo(host, String(port), &hints, &addresses) == 0 else {

@@ -74,7 +74,7 @@ private final class LiveSSHFixtureRunLock {
             return NSError(
                 domain: NSPOSIXErrorDomain,
                 code: Int(code),
-                userInfo: [NSLocalizedDescriptionKey: "\(description): \(String(cString: strerror(code)))"]
+                userInfo: [NSLocalizedDescriptionKey: "\(description): \(String(cString: strerror(code)))"],
             )
         }
     #else
@@ -145,7 +145,7 @@ class LiveSSHTestCase: XCTestCase {
 
     func requireLiveFixtureCapability(
         _ condition: Bool,
-        _ message: String
+        _ message: String,
     ) throws {
         guard condition else {
             throw XCTSkip(message)
@@ -155,7 +155,7 @@ class LiveSSHTestCase: XCTestCase {
     func connect(
         authentication: SSHAuthentication,
         fixture: AlpineSSHFixture,
-        knownHostsPath: String
+        knownHostsPath: String,
     ) throws -> SSHConnection {
         let configuration = SSHClientConfiguration(
             host: fixture.host,
@@ -166,14 +166,14 @@ class LiveSSHTestCase: XCTestCase {
             timeout: 20,
             logHandler: { event in
                 LiveSSHLog.core(event)
-            }
+            },
         )
 
         let expectation = expectation(description: "Connect to Alpine SSH fixture")
         var connectionResult: Result<SSHConnection, SSHKitError>?
 
         LiveSSHLog.event(
-            "connect start host=\(fixture.host) port=\(fixture.port) username=\(fixture.username) auth=\(authentication.liveDiagnosticName)"
+            "connect start host=\(fixture.host) port=\(fixture.port) username=\(fixture.username) auth=\(authentication.liveDiagnosticName)",
         )
         SSHClient.connect(configuration: configuration, callbackQueue: .main) { result in
             LiveSSHLog.event("connect \(result.liveDiagnosticStatus)")
@@ -208,7 +208,7 @@ class LiveSSHTestCase: XCTestCase {
         XCTAssertEqual(outputLines.first, "root")
         XCTAssertTrue(
             outputLines.dropFirst().first?.range(of: #"^\d+\.\d+(\.\d+)?$"#, options: .regularExpression) != nil,
-            "Expected Alpine release output, received: \(standardOutput)"
+            "Expected Alpine release output, received: \(standardOutput)",
         )
         let standardError = String(data: result.standardError, encoding: .utf8) ?? ""
         XCTAssertFalse(standardError.localizedCaseInsensitiveContains("permission denied"))
@@ -241,7 +241,7 @@ class LiveSSHTestCase: XCTestCase {
             username: fixture.username,
             authentication: .password(fixture.password),
             hostKeyPolicy: .knownHostsFile(knownHostsPath),
-            timeout: 10
+            timeout: 10,
         )
 
         let expectation = expectation(description: "Discover Alpine SSH authentication methods")
@@ -289,7 +289,7 @@ class LiveSSHTestCase: XCTestCase {
         return try SSHCommandResult(
             standardOutput: eventCapture.standardOutput(),
             standardError: Data(),
-            exitStatus: XCTUnwrap(eventCapture.exitStatus())
+            exitStatus: XCTUnwrap(eventCapture.exitStatus()),
         )
     }
 
@@ -336,7 +336,7 @@ class LiveSSHTestCase: XCTestCase {
             standardOutput: eventCapture.standardOutput(),
             standardError: eventCapture.standardError(),
             exitStatus: XCTUnwrap(eventCapture.exitStatus()),
-            exitSignal: eventCapture.exitSignal()
+            exitSignal: eventCapture.exitSignal(),
         )
     }
 
@@ -351,7 +351,7 @@ class LiveSSHTestCase: XCTestCase {
         let connection = try connect(
             authentication: .privateKeyFile(path: makePrivateKeyFile(fixture: fixture)),
             fixture: fixture,
-            knownHostsPath: makeKnownHostsFile(fixture: fixture)
+            knownHostsPath: makeKnownHostsFile(fixture: fixture),
         )
 
         do {
@@ -372,7 +372,7 @@ class LiveSSHTestCase: XCTestCase {
         let connection = try connect(
             authentication: .password(fixture.password),
             fixture: fixture,
-            knownHostsPath: makeKnownHostsFile(fixture: fixture)
+            knownHostsPath: makeKnownHostsFile(fixture: fixture),
         )
 
         do {
@@ -391,7 +391,7 @@ class LiveSSHTestCase: XCTestCase {
     func openStreamingCommand(
         _ commandLine: String,
         on connection: SSHConnection,
-        eventHandler: @escaping @Sendable (SSHCommandEvent) -> Void
+        eventHandler: @escaping @Sendable (SSHCommandEvent) -> Void,
     ) throws -> SSHCommand {
         let openExpectation = expectation(description: "Open streamed command")
         var openResult: Result<SSHCommand, SSHKitError>?

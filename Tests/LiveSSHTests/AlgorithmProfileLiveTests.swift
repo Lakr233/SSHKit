@@ -15,7 +15,7 @@ final class AlgorithmProfileLiveTests: LiveSSHTestCase {
             authentication: .password(fixture.password),
             hostKeyPolicy: .knownHostsFile(knownHostsPath),
             timeout: 10,
-            algorithmProfile: .legacyRSA
+            algorithmProfile: .legacyRSA,
         )
         let connection = try connect(configuration: configuration)
         defer {
@@ -44,7 +44,7 @@ final class AlgorithmProfileLiveTests: LiveSSHTestCase {
         let expectation = expectation(description: "Connect to external legacy RSA SSH fixture")
         var connectionResult: Result<SSHConnection, SSHKitError>?
         LiveSSHLog.event(
-            "connect start host=\(configuration.host) port=\(configuration.port) username=\(configuration.username) auth=\(configuration.authentication.liveDiagnosticName)"
+            "connect start host=\(configuration.host) port=\(configuration.port) username=\(configuration.username) auth=\(configuration.authentication.liveDiagnosticName)",
         )
         SSHClient.connect(configuration: configuration, callbackQueue: .main) { result in
             LiveSSHLog.event("connect \(result.liveDiagnosticStatus)")

@@ -8,7 +8,7 @@ import Testing
         host: "example.com",
         username: "user",
         authentication: .password("secret"),
-        hostKeyPolicy: .knownHostsFile("/tmp/known_hosts")
+        hostKeyPolicy: .knownHostsFile("/tmp/known_hosts"),
     )
 
     #expect(configuration.host == "example.com")
@@ -66,7 +66,7 @@ import Testing
             #expect(prompts == [SSHKeyboardInteractivePrompt(prompt: "Password:", echo: false)])
             return ["secret"]
         },
-        hostKeyPolicy: .knownHostsFile("/tmp/known_hosts")
+        hostKeyPolicy: .knownHostsFile("/tmp/known_hosts"),
     ).bridgeConfiguration
 
     let responder = try #require(configuration.keyboardInteractiveResponder)
@@ -83,7 +83,7 @@ import Testing
         host: "example.com",
         username: "user",
         authentication: .agent(SSHAgentConfiguration(socketPath: "/tmp/agent.sock")),
-        hostKeyPolicy: .knownHostsFile("/tmp/known_hosts")
+        hostKeyPolicy: .knownHostsFile("/tmp/known_hosts"),
     ).bridgeConfiguration
 
     #expect(configuration.authenticationKind == .agent)
@@ -100,7 +100,7 @@ import Testing
         host: "example.com",
         username: "user",
         authentication: .password("secret"),
-        hostKeyPolicy: .pinnedFingerprint(SSHHostKeyFingerprint("abc123"))
+        hostKeyPolicy: .pinnedFingerprint(SSHHostKeyFingerprint("abc123")),
     ).bridgeConfiguration
 
     #expect(configuration.hostKeyPolicyKind == .pinnedFingerprint)
@@ -116,7 +116,7 @@ import Testing
         port: 2222,
         username: "user",
         authentication: .password("secret"),
-        hostKeyPolicy: .trustStore(store)
+        hostKeyPolicy: .trustStore(store),
     ).bridgeConfiguration
 
     #expect(configuration.hostKeyPolicyKind == .trustedFingerprint)
@@ -129,7 +129,7 @@ import Testing
         port: 2222,
         username: "user",
         authentication: .password("secret"),
-        hostKeyPolicy: .trustStore(SSHMemoryHostTrustStore())
+        hostKeyPolicy: .trustStore(SSHMemoryHostTrustStore()),
     ).bridgeConfiguration
 
     #expect(configuration.hostKeyPolicyKind == .trustedFingerprint)
@@ -140,7 +140,7 @@ import Testing
     let result = SSHKitHostKeyDiscoveryResult(
         host: "example.com",
         port: 2222,
-        fingerprint: "abc123"
+        fingerprint: "abc123",
     )
 
     let discovered = SSHDiscoveredHostKey(result)
@@ -156,7 +156,7 @@ import Testing
         port: 2222,
         timeout: 12,
         proxyRoute: .socks5(SSHProxyEndpoint(host: "proxy.example.com", port: 1080, username: "proxy-user", password: "proxy-secret")),
-        algorithmProfile: .legacyRSA
+        algorithmProfile: .legacyRSA,
     ).bridgeConfiguration
 
     #expect(configuration.host == "example.com")
@@ -182,7 +182,7 @@ import Testing
             NSNumber(value: SSHKitAuthenticationMethod.keyboardInteractive.rawValue),
         ],
         issueBanner: "notice",
-        serverBanner: "SSH-2.0-fixture"
+        serverBanner: "SSH-2.0-fixture",
     )
 
     let discovery = SSHAuthenticationDiscoveryResult(result)
@@ -202,7 +202,7 @@ import Testing
             "password": "secret",
             "privateKeyPath": "/tmp/id_ed25519",
             "tokenValue": "abc",
-        ]
+        ],
     ).redacted
 
     #expect(event.metadata["username"] == "user")
@@ -235,7 +235,7 @@ import Testing
         hostKeyPolicy: .knownHostsFile("/tmp/known_hosts"),
         logHandler: { event in
             box.events.append(event)
-        }
+        },
     ).bridgeConfiguration
 
     let handler = try #require(configuration.logHandler)
@@ -243,7 +243,7 @@ import Testing
         level: .info,
         phase: "auth",
         message: "auth selected",
-        metadata: ["password": "secret"]
+        metadata: ["password": "secret"],
     ))
 
     #expect(box.events.count == 1)
@@ -257,7 +257,7 @@ import Testing
         username: "user",
         authentication: .password("secret"),
         hostKeyPolicy: .knownHostsFile("/tmp/known_hosts"),
-        proxyRoute: .socks5(SSHProxyEndpoint(host: "proxy.example.com", port: 1080, username: "proxy-user", password: "proxy-pass"))
+        proxyRoute: .socks5(SSHProxyEndpoint(host: "proxy.example.com", port: 1080, username: "proxy-user", password: "proxy-pass")),
     ).bridgeConfiguration
 
     #expect(configuration.proxyRouteKind == .SOCKS5)
@@ -273,7 +273,7 @@ import Testing
         username: "user",
         authentication: .password("secret"),
         hostKeyPolicy: .knownHostsFile("/tmp/known_hosts"),
-        proxyRoute: .httpConnect(SSHProxyEndpoint(host: "proxy.example.com", port: 8080))
+        proxyRoute: .httpConnect(SSHProxyEndpoint(host: "proxy.example.com", port: 8080)),
     ).bridgeConfiguration
 
     #expect(configuration.proxyRouteKind == .httpConnect)
@@ -292,8 +292,8 @@ import Testing
             port: 2222,
             username: "jump-user",
             authentication: .privateKeyFile(path: "/tmp/jump_key"),
-            hostKeyPolicy: .knownHostsFile("/tmp/jump_known_hosts")
-        ))
+            hostKeyPolicy: .knownHostsFile("/tmp/jump_known_hosts"),
+        )),
     ).bridgeConfiguration
 
     #expect(configuration.proxyRouteKind == .proxyJump)
@@ -312,7 +312,7 @@ import Testing
         username: "user",
         authentication: .password("secret"),
         hostKeyPolicy: .knownHostsFile("/tmp/known_hosts"),
-        algorithmProfile: .legacyRSA
+        algorithmProfile: .legacyRSA,
     ).bridgeConfiguration
 
     #expect(configuration.hostKeyAlgorithms == "+ssh-rsa")
@@ -432,7 +432,7 @@ import Testing
         port: 2222,
         username: "user",
         authentication: .privateKeyFile(path: "/tmp/id_ed25519", passphrase: "secret"),
-        hostKeyPolicy: .knownHostsFile("/tmp/known_hosts")
+        hostKeyPolicy: .knownHostsFile("/tmp/known_hosts"),
     )
 
     let report = configuration.diagnosticReport(
@@ -440,7 +440,7 @@ import Testing
         metadata: ["privateKeyPassphrase": "secret", "attempt": "1"],
         recentEvents: [
             SSHLogEvent(level: .info, phase: "connect", message: "connected", metadata: ["password": "secret"]),
-        ]
+        ],
     )
 
     #expect(report.host == "example.com")

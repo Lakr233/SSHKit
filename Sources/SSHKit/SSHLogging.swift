@@ -20,7 +20,7 @@ public struct SSHLogEvent: Equatable, Sendable {
         phase: String,
         message: String,
         metadata: [String: String] = [:],
-        timestamp: Date = Date()
+        timestamp: Date = Date(),
     ) {
         self.level = level
         self.phase = phase
@@ -47,7 +47,7 @@ public struct SSHLogEvent: Equatable, Sendable {
             phase: phase,
             message: message,
             metadata: redactedMetadata,
-            timestamp: timestamp
+            timestamp: timestamp,
         )
     }
 
@@ -110,7 +110,7 @@ public struct SSHDiagnosticReport: Equatable, Sendable {
         hostKeyPolicy: String,
         metadata: [String: String] = [:],
         recentEvents: [SSHLogEvent] = [],
-        generatedAt: Date = Date()
+        generatedAt: Date = Date(),
     ) {
         self.phase = phase
         self.host = host
@@ -123,7 +123,7 @@ public struct SSHDiagnosticReport: Equatable, Sendable {
             phase: phase,
             message: "diagnostic metadata",
             metadata: metadata,
-            timestamp: generatedAt
+            timestamp: generatedAt,
         ).redacted.metadata
         self.recentEvents = recentEvents.map(\.redacted)
         self.generatedAt = generatedAt

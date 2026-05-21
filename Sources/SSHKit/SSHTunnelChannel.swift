@@ -13,7 +13,7 @@ public final class SSHTunnelChannel: @unchecked Sendable {
     public func read(
         maximumLength: Int = 32768,
         callbackQueue: DispatchQueue = .main,
-        completion: @escaping (Result<Data, SSHKitError>) -> Void
+        completion: @escaping (Result<Data, SSHKitError>) -> Void,
     ) {
         precondition(maximumLength > 0, "Tunnel read maximum length must be greater than zero.")
 
@@ -34,7 +34,7 @@ public final class SSHTunnelChannel: @unchecked Sendable {
     public func write(
         _ data: Data,
         callbackQueue: DispatchQueue = .main,
-        completion: @escaping (Result<Void, SSHKitError>) -> Void
+        completion: @escaping (Result<Void, SSHKitError>) -> Void,
     ) {
         precondition(data.isEmpty == false, "Tunnel write data must not be empty.")
 
@@ -45,7 +45,7 @@ public final class SSHTunnelChannel: @unchecked Sendable {
 
     public func close(
         callbackQueue: DispatchQueue = .main,
-        completion: @escaping (Result<Void, SSHKitError>) -> Void
+        completion: @escaping (Result<Void, SSHKitError>) -> Void,
     ) {
         channel.close { error in
             Self.complete(error: error, callbackQueue: callbackQueue, completion: completion)
@@ -91,7 +91,7 @@ public final class SSHTunnelChannel: @unchecked Sendable {
     private static func complete(
         error: Error?,
         callbackQueue: DispatchQueue,
-        completion: @escaping (Result<Void, SSHKitError>) -> Void
+        completion: @escaping (Result<Void, SSHKitError>) -> Void,
     ) {
         if let error = error as NSError? {
             callbackQueue.async {

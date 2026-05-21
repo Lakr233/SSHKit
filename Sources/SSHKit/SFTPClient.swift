@@ -27,7 +27,7 @@ public struct SFTPAttributes: Equatable, Sendable {
         gid: UInt32,
         type: UInt8,
         accessedAt: Date? = nil,
-        modifiedAt: Date? = nil
+        modifiedAt: Date? = nil,
     ) {
         self.size = size
         self.permissions = permissions
@@ -46,7 +46,7 @@ public struct SFTPAttributes: Equatable, Sendable {
             gid: attributes.gid,
             type: attributes.type,
             accessedAt: attributes.accessedAt,
-            modifiedAt: attributes.modifiedAt
+            modifiedAt: attributes.modifiedAt,
         )
     }
 }
@@ -81,7 +81,7 @@ public final class SFTPFileHandle: @unchecked Sendable {
     public func readData(
         maximumLength: Int,
         callbackQueue: DispatchQueue = .main,
-        completion: @escaping (Result<Data, SSHKitError>) -> Void
+        completion: @escaping (Result<Data, SSHKitError>) -> Void,
     ) {
         precondition(maximumLength > 0, "SFTP file read length must be greater than zero.")
 
@@ -103,7 +103,7 @@ public final class SFTPFileHandle: @unchecked Sendable {
     public func writeData(
         _ data: Data,
         callbackQueue: DispatchQueue = .main,
-        completion: @escaping (Result<Void, SSHKitError>) -> Void
+        completion: @escaping (Result<Void, SSHKitError>) -> Void,
     ) {
         precondition(data.isEmpty == false, "SFTP file write data must not be empty.")
         handle.write(data) { error in
@@ -114,7 +114,7 @@ public final class SFTPFileHandle: @unchecked Sendable {
     public func seek(
         to offset: UInt64,
         callbackQueue: DispatchQueue = .main,
-        completion: @escaping (Result<Void, SSHKitError>) -> Void
+        completion: @escaping (Result<Void, SSHKitError>) -> Void,
     ) {
         handle.seek(toOffset: offset) { error in
             SFTPClient.complete(error: error, callbackQueue: callbackQueue, completion: completion)
@@ -123,7 +123,7 @@ public final class SFTPFileHandle: @unchecked Sendable {
 
     public func close(
         callbackQueue: DispatchQueue = .main,
-        completion: @escaping (Result<Void, SSHKitError>) -> Void
+        completion: @escaping (Result<Void, SSHKitError>) -> Void,
     ) {
         handle.close { error in
             SFTPClient.complete(error: error, callbackQueue: callbackQueue, completion: completion)
@@ -157,7 +157,7 @@ public final class SFTPFileHandle: @unchecked Sendable {
     }
 
     private func withCancellation<Value>(
-        _ operation: (@escaping (Result<Value, SSHKitError>) -> Void) -> Void
+        _ operation: (@escaping (Result<Value, SSHKitError>) -> Void) -> Void,
     ) async throws -> Value {
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -187,7 +187,7 @@ public final class SFTPClient: @unchecked Sendable {
     public func listDirectory(
         _ path: String,
         callbackQueue: DispatchQueue = .main,
-        completion: @escaping (Result<[SFTPEntry], SSHKitError>) -> Void
+        completion: @escaping (Result<[SFTPEntry], SSHKitError>) -> Void,
     ) {
         precondition(path.isEmpty == false, "SFTP directory path must not be empty.")
 
@@ -304,7 +304,7 @@ public final class SFTPClient: @unchecked Sendable {
         flags: SFTPFileOpenFlags,
         permissions: UInt32 = 0o600,
         callbackQueue: DispatchQueue = .main,
-        completion: @escaping (Result<SFTPFileHandle, SSHKitError>) -> Void
+        completion: @escaping (Result<SFTPFileHandle, SSHKitError>) -> Void,
     ) {
         precondition(path.isEmpty == false, "SFTP file path must not be empty.")
         precondition(flags.isEmpty == false, "SFTP file open flags must not be empty.")
@@ -312,7 +312,7 @@ public final class SFTPClient: @unchecked Sendable {
         client.openFile(
             atPath: path,
             flags: SSHKitObjC.SSHKitSFTPFileOpenFlags(rawValue: flags.rawValue),
-            permissions: permissions
+            permissions: permissions,
         ) { handle, error in
             if let error = error as NSError? {
                 callbackQueue.async { completion(.failure(SSHKitError(error))) }
@@ -359,7 +359,7 @@ public final class SFTPClient: @unchecked Sendable {
         to localURL: URL,
         progress: (@Sendable (UInt64, UInt64) -> Void)? = nil,
         callbackQueue: DispatchQueue = .main,
-        completion: @escaping (Result<Void, SSHKitError>) -> Void
+        completion: @escaping (Result<Void, SSHKitError>) -> Void,
     ) {
         precondition(remotePath.isEmpty == false, "SFTP remote download path must not be empty.")
         precondition(localURL.path.isEmpty == false, "SFTP local download path must not be empty.")
@@ -375,7 +375,7 @@ public final class SFTPClient: @unchecked Sendable {
         to localURL: URL,
         progress: (@Sendable (UInt64, UInt64) -> Void)? = nil,
         callbackQueue: DispatchQueue = .main,
-        completion: @escaping (Result<Void, SSHKitError>) -> Void
+        completion: @escaping (Result<Void, SSHKitError>) -> Void,
     ) {
         precondition(remotePath.isEmpty == false, "SFTP remote download path must not be empty.")
         precondition(localURL.path.isEmpty == false, "SFTP local download path must not be empty.")
@@ -391,7 +391,7 @@ public final class SFTPClient: @unchecked Sendable {
         to remotePath: String,
         progress: (@Sendable (UInt64, UInt64) -> Void)? = nil,
         callbackQueue: DispatchQueue = .main,
-        completion: @escaping (Result<Void, SSHKitError>) -> Void
+        completion: @escaping (Result<Void, SSHKitError>) -> Void,
     ) {
         precondition(localURL.path.isEmpty == false, "SFTP local upload path must not be empty.")
         precondition(remotePath.isEmpty == false, "SFTP remote upload path must not be empty.")
@@ -407,7 +407,7 @@ public final class SFTPClient: @unchecked Sendable {
         to remotePath: String,
         progress: (@Sendable (UInt64, UInt64) -> Void)? = nil,
         callbackQueue: DispatchQueue = .main,
-        completion: @escaping (Result<Void, SSHKitError>) -> Void
+        completion: @escaping (Result<Void, SSHKitError>) -> Void,
     ) {
         precondition(localURL.path.isEmpty == false, "SFTP local upload path must not be empty.")
         precondition(remotePath.isEmpty == false, "SFTP remote upload path must not be empty.")
@@ -420,7 +420,7 @@ public final class SFTPClient: @unchecked Sendable {
 
     public func close(
         callbackQueue: DispatchQueue = .main,
-        completion: @escaping (Result<Void, SSHKitError>) -> Void
+        completion: @escaping (Result<Void, SSHKitError>) -> Void,
     ) {
         client.close { error in
             Self.complete(error: error, callbackQueue: callbackQueue, completion: completion)
@@ -526,7 +526,7 @@ public final class SFTPClient: @unchecked Sendable {
     fileprivate static func complete(
         error: Error?,
         callbackQueue: DispatchQueue,
-        completion: @escaping (Result<Void, SSHKitError>) -> Void
+        completion: @escaping (Result<Void, SSHKitError>) -> Void,
     ) {
         if let error = error as NSError? {
             callbackQueue.async {
@@ -545,7 +545,7 @@ public final class SFTPClient: @unchecked Sendable {
         missingMessage: String,
         error: Error?,
         callbackQueue: DispatchQueue,
-        completion: @escaping (Result<String, SSHKitError>) -> Void
+        completion: @escaping (Result<String, SSHKitError>) -> Void,
     ) {
         if let error = error as NSError? {
             callbackQueue.async { completion(.failure(SSHKitError(error))) }
@@ -562,7 +562,7 @@ public final class SFTPClient: @unchecked Sendable {
         attributes: SSHKitObjC.SSHKitSFTPAttributes?,
         error: Error?,
         callbackQueue: DispatchQueue,
-        completion: @escaping (Result<SFTPAttributes, SSHKitError>) -> Void
+        completion: @escaping (Result<SFTPAttributes, SSHKitError>) -> Void,
     ) {
         if let error = error as NSError? {
             callbackQueue.async { completion(.failure(SSHKitError(error))) }
@@ -577,7 +577,7 @@ public final class SFTPClient: @unchecked Sendable {
 
     private static func wrapProgress(
         _ progress: (@Sendable (UInt64, UInt64) -> Void)?,
-        deliveryQueue: DispatchQueue
+        deliveryQueue: DispatchQueue,
     ) -> SSHKitSFTPProgressHandler? {
         guard let progress else {
             return nil
@@ -594,7 +594,7 @@ public final class SFTPClient: @unchecked Sendable {
     }
 
     private func withCancellation<Value>(
-        _ operation: (@escaping (Result<Value, SSHKitError>) -> Void) -> Void
+        _ operation: (@escaping (Result<Value, SSHKitError>) -> Void) -> Void,
     ) async throws -> Value {
         let cancellation = SSHAsyncCancellationBox()
         return try await withTaskCancellationHandler {

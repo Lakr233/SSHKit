@@ -215,6 +215,7 @@ final class SSHTerminalSession {
             metadata["deliveredByteCount"] = String(translated.data.count)
             AppLog.debug(.terminal, "SSH shell output received", metadata: metadata)
             inMemory.receive(translated.data)
+            AppLog.debug(.terminal, "SSH shell output delivered to Ghostty", metadata: TerminalByteShape.metadata(for: translated.data))
         case let .closed(status):
             let runtimeMs: UInt64 = startedAt.map {
                 (DispatchTime.now().uptimeNanoseconds &- $0.uptimeNanoseconds) / 1_000_000
@@ -363,6 +364,9 @@ enum TerminalByteShape {
         var carriageReturnLineFeeds = 0
         var bareLineFeeds = 0
         var escapeBytes = 0
+        var deleteBytes = 0
+        var tabBytes = 0
+        var printableASCIIBytes = 0
         var previousByte: UInt8?
 
         for byte in data {
@@ -380,6 +384,15 @@ enum TerminalByteShape {
             if byte == 0x1B {
                 escapeBytes += 1
             }
+            if byte == 0x08 || byte == 0x7F {
+                deleteBytes += 1
+            }
+            if byte == 0x09 {
+                tabBytes += 1
+            }
+            if byte >= 0x20, byte <= 0x7E {
+                printableASCIIBytes += 1
+            }
             previousByte = byte
         }
 
@@ -390,6 +403,9 @@ enum TerminalByteShape {
             "carriageReturnLineFeeds": String(carriageReturnLineFeeds),
             "bareLineFeeds": String(bareLineFeeds),
             "escapeBytes": String(escapeBytes),
+            "deleteBytes": String(deleteBytes),
+            "tabBytes": String(tabBytes),
+            "printableASCIIBytes": String(printableASCIIBytes),
         ]
     }
 }

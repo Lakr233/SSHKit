@@ -18,7 +18,7 @@ public final class SSHShell: @unchecked Sendable {
     public func write(
         _ data: Data,
         callbackQueue: DispatchQueue = .main,
-        completion: @escaping (Result<Void, SSHKitError>) -> Void
+        completion: @escaping (Result<Void, SSHKitError>) -> Void,
     ) {
         precondition(data.isEmpty == false, "Shell write data must not be empty.")
 
@@ -57,7 +57,7 @@ public final class SSHShell: @unchecked Sendable {
         columns: UInt16,
         rows: UInt16,
         callbackQueue: DispatchQueue = .main,
-        completion: @escaping (Result<Void, SSHKitError>) -> Void
+        completion: @escaping (Result<Void, SSHKitError>) -> Void,
     ) {
         precondition(columns > 0, "PTY columns must be greater than zero.")
         precondition(rows > 0, "PTY rows must be greater than zero.")
@@ -82,7 +82,7 @@ public final class SSHShell: @unchecked Sendable {
 
     public func close(
         callbackQueue: DispatchQueue = .main,
-        completion: @escaping (Result<Void, SSHKitError>) -> Void
+        completion: @escaping (Result<Void, SSHKitError>) -> Void,
     ) {
         shell.close { error in
             Self.complete(error: error, callbackQueue: callbackQueue, completion: completion)
@@ -113,7 +113,7 @@ public final class SSHShell: @unchecked Sendable {
     private static func complete(
         error: Error?,
         callbackQueue: DispatchQueue,
-        completion: @escaping (Result<Void, SSHKitError>) -> Void
+        completion: @escaping (Result<Void, SSHKitError>) -> Void,
     ) {
         if let error = error as NSError? {
             callbackQueue.async {

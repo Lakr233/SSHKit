@@ -8,7 +8,7 @@ final class AuthenticationLiveTests: LiveSSHTestCase {
         let fixture = try AlpineSSHFixture()
         let discovery = try discoverAuthenticationMethods(
             fixture: fixture,
-            knownHostsPath: makeKnownHostsFile(fixture: fixture)
+            knownHostsPath: makeKnownHostsFile(fixture: fixture),
         )
 
         XCTAssertTrue(discovery.methods.contains(.password) || discovery.methods.contains(.publicKey))
@@ -23,7 +23,7 @@ final class AuthenticationLiveTests: LiveSSHTestCase {
         let discovery = try discoverAuthenticationMethods(fixture: fixture, knownHostsPath: knownHostsPath)
         try requireLiveFixtureCapability(
             discovery.methods.contains(.keyboardInteractive),
-            "Fixture SSH server must advertise keyboard-interactive authentication."
+            "Fixture SSH server must advertise keyboard-interactive authentication.",
         )
 
         let connection = try connect(
@@ -33,7 +33,7 @@ final class AuthenticationLiveTests: LiveSSHTestCase {
                 }
             },
             fixture: fixture,
-            knownHostsPath: knownHostsPath
+            knownHostsPath: knownHostsPath,
         )
 
         do {
@@ -68,7 +68,7 @@ final class AuthenticationLiveTests: LiveSSHTestCase {
         let connection = try connect(
             authentication: .agent(SSHAgentConfiguration(socketPath: agent.socketPath)),
             fixture: fixture,
-            knownHostsPath: makeKnownHostsFile(fixture: fixture)
+            knownHostsPath: makeKnownHostsFile(fixture: fixture),
         )
 
         do {
@@ -92,7 +92,7 @@ final class AuthenticationLiveTests: LiveSSHTestCase {
         let adminConnection = try connect(
             authentication: .password(fixture.password),
             fixture: fixture,
-            knownHostsPath: makeKnownHostsFile(fixture: fixture)
+            knownHostsPath: makeKnownHostsFile(fixture: fixture),
         )
         let comment = "sshkit-generated-\(UUID().uuidString)"
         let keyPair = try SSHKeyGenerator.generateOpenSSHKeyPair(type: .ed25519, comment: comment)
@@ -106,7 +106,7 @@ final class AuthenticationLiveTests: LiveSSHTestCase {
         do {
             _ = try runCommand(
                 "umask 077 && mkdir -p ~/.ssh && touch ~/.ssh/authorized_keys && printf '%s\\n' \(shellQuoted(keyPair.authorizedKey)) >> ~/.ssh/authorized_keys",
-                on: adminConnection
+                on: adminConnection,
             )
             installedAuthorizedKey = true
             try close(adminConnection)
@@ -123,7 +123,7 @@ final class AuthenticationLiveTests: LiveSSHTestCase {
             let generatedKeyConnection = try connect(
                 authentication: .privateKeyFile(path: privateKeyPath),
                 fixture: fixture,
-                knownHostsPath: makeKnownHostsFile(fixture: fixture)
+                knownHostsPath: makeKnownHostsFile(fixture: fixture),
             )
             let result = try awaitSmokeCommand(on: generatedKeyConnection)
             try close(generatedKeyConnection)
@@ -154,11 +154,11 @@ final class AuthenticationLiveTests: LiveSSHTestCase {
             let cleanupConnection = try connect(
                 authentication: .password(fixture.password),
                 fixture: fixture,
-                knownHostsPath: makeKnownHostsFile(fixture: fixture)
+                knownHostsPath: makeKnownHostsFile(fixture: fixture),
             )
             _ = try runCommand(
                 "grep -F -v -- \(shellQuoted(comment)) ~/.ssh/authorized_keys > ~/.ssh/authorized_keys.sshkit.tmp || true; mv ~/.ssh/authorized_keys.sshkit.tmp ~/.ssh/authorized_keys",
-                on: cleanupConnection
+                on: cleanupConnection,
             )
             try close(cleanupConnection)
         } catch {

@@ -7,7 +7,7 @@ public enum SSHClient {
     public static func connect(
         configuration: SSHClientConfiguration,
         callbackQueue: DispatchQueue = .main,
-        completion: @escaping (Result<SSHConnection, SSHKitError>) -> Void
+        completion: @escaping (Result<SSHConnection, SSHKitError>) -> Void,
     ) {
         let session = SSHKitConnection(configuration: configuration.bridgeConfiguration)
         session.connect { error in
@@ -59,7 +59,7 @@ public enum SSHClient {
     public static func discoverAuthenticationMethods(
         configuration: SSHClientConfiguration,
         callbackQueue: DispatchQueue = .main,
-        completion: @escaping (Result<SSHAuthenticationDiscoveryResult, SSHKitError>) -> Void
+        completion: @escaping (Result<SSHAuthenticationDiscoveryResult, SSHKitError>) -> Void,
     ) {
         let session = SSHKitConnection(configuration: configuration.bridgeConfiguration)
         session.discoverAuthenticationMethods { result, error in
@@ -117,7 +117,7 @@ public enum SSHClient {
     public static func discoverHostKey(
         configuration: SSHHostKeyDiscoveryConfiguration,
         callbackQueue: DispatchQueue = .main,
-        completion: @escaping (Result<SSHDiscoveredHostKey, SSHKitError>) -> Void
+        completion: @escaping (Result<SSHDiscoveredHostKey, SSHKitError>) -> Void,
     ) {
         let session = SSHKitConnection(configuration: configuration.bridgeConfiguration)
         session.discoverHostKey { result, error in
@@ -237,7 +237,7 @@ private final class SSHLockedSession: @unchecked Sendable {
 public extension SSHClient {
     static func withConnection<Result>(
         _ configuration: SSHClientConfiguration,
-        operation: (SSHConnection) async throws -> Result
+        operation: (SSHConnection) async throws -> Result,
     ) async throws -> Result {
         let connection = try await connect(configuration: configuration)
         do {

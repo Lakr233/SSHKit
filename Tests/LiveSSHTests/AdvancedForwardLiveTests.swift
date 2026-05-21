@@ -20,7 +20,7 @@ final class AdvancedForwardLiveTests: LiveSSHTestCase {
                 targetHost: "127.0.0.1",
                 targetPort: fixture.remoteSSHDPort,
                 username: nil,
-                password: nil
+                password: nil,
             )
             XCTAssertTrue(banner.hasPrefix("SSH-2.0-"), "Expected SSH banner through SOCKS forward, received: \(banner)")
         }
@@ -52,7 +52,7 @@ final class AdvancedForwardLiveTests: LiveSSHTestCase {
                     socksHost: socksForward.boundHost,
                     socksPort: socksForward.boundPort,
                     targetHost: "127.0.0.1",
-                    targetPort: remoteForward.boundPort
+                    targetPort: remoteForward.boundPort,
                 )
                 XCTAssertTrue(httpResponse.hasPrefix("HTTP/1.1 200 OK\r\n"))
                 XCTAssertTrue(httpResponse.hasSuffix(body))
@@ -76,7 +76,7 @@ final class AdvancedForwardLiveTests: LiveSSHTestCase {
                 targetHost: "127.0.0.1",
                 targetPort: fixture.remoteSSHDPort,
                 username: "sshkit",
-                password: "fixture-secret"
+                password: "fixture-secret",
             )
             XCTAssertTrue(banner.hasPrefix("SSH-2.0-"), "Expected SSH banner through authenticated SOCKS forward, received: \(banner)")
         }
@@ -107,6 +107,44 @@ final class AdvancedForwardLiveTests: LiveSSHTestCase {
         }
     }
 
+    func testPrivateKeyLoginRunsRemoteForwardOnExplicitPort() throws {
+        try requireLiveTestsEnabled()
+
+        let payload = "remote-forward-explicit-ok\n"
+        let server = try OneShotTCPServer(payload: Data(payload.utf8))
+        defer {
+            server.close()
+        }
+
+        let explicitPort = UInt16.random(in: 39000 ..< 39500)
+
+        try withPrivateKeyConnection { forwardingConnection in
+            let forward = try startRemoteForward(
+                remoteBindHost: "127.0.0.1",
+                remoteBindPort: explicitPort,
+                localTargetHost: "127.0.0.1",
+                localTargetPort: server.port,
+                on: forwardingConnection,
+            )
+            defer {
+                try? close(forward)
+            }
+
+            // libssh quirk: tcpip-forward reply omits the bound port when the
+            // client requested a specific port (RFC 4254 §7.1), so boundPort
+            // comes back as 0 even though the server is listening on `explicitPort`.
+            XCTAssertEqual(forward.boundPort, 0, "Expected libssh to report 0 for explicit-port tcpip-forward")
+
+            try withPrivateKeyConnection { commandConnection in
+                try requireRemoteNetcat(on: commandConnection)
+                let result = try execute("nc -w 2 127.0.0.1 \(explicitPort)", on: commandConnection)
+                XCTAssertEqual(result.exitStatus, 0, "nc to 127.0.0.1:\(explicitPort) should reach the local one-shot server through the SSH remote forward")
+                XCTAssertEqual(String(data: result.standardOutput, encoding: .utf8), payload)
+                XCTAssertEqual(result.standardError, Data())
+            }
+        }
+    }
+
     private func startDynamicForward(username: String? = nil, password: String? = nil, on connection: SSHConnection) throws -> SSHPortForward {
         let expectation = expectation(description: "Start dynamic SOCKS forward")
         var forwardResult: Result<SSHPortForward, SSHKitError>?
@@ -121,10 +159,32 @@ final class AdvancedForwardLiveTests: LiveSSHTestCase {
     }
 
     private func startRemoteForward(localHost: String, localPort: UInt16, on connection: SSHConnection) throws -> SSHPortForward {
+        try startRemoteForward(
+            remoteBindHost: "127.0.0.1",
+            remoteBindPort: 0,
+            localTargetHost: localHost,
+            localTargetPort: localPort,
+            on: connection,
+        )
+    }
+
+    private func startRemoteForward(
+        remoteBindHost: String,
+        remoteBindPort: UInt16,
+        localTargetHost: String,
+        localTargetPort: UInt16,
+        on connection: SSHConnection,
+    ) throws -> SSHPortForward {
         let expectation = expectation(description: "Start remote SSH forward")
         var forwardResult: Result<SSHPortForward, SSHKitError>?
-        LiveSSHLog.event("remote-forward start remoteHost=127.0.0.1 remotePort=0 localHost=\(localHost) localPort=\(localPort)")
-        connection.startRemoteForward(remoteHost: "127.0.0.1", remotePort: 0, localHost: localHost, localPort: localPort, callbackQueue: .main) { result in
+        LiveSSHLog.event("remote-forward start remoteHost=\(remoteBindHost) remotePort=\(remoteBindPort) localHost=\(localTargetHost) localPort=\(localTargetPort)")
+        connection.startRemoteForward(
+            remoteHost: remoteBindHost,
+            remotePort: remoteBindPort,
+            localHost: localTargetHost,
+            localPort: localTargetPort,
+            callbackQueue: .main,
+        ) { result in
             LiveSSHLog.event("remote-forward \(result.liveDiagnosticStatus)")
             forwardResult = result
             expectation.fulfill()
@@ -163,7 +223,7 @@ final class AdvancedForwardLiveTests: LiveSSHTestCase {
         let result = try execute("command -v nc >/dev/null 2>&1 && nc -h 2>&1 | grep -q -- '-w'", on: connection)
         try requireLiveFixtureCapability(
             result.exitStatus == 0,
-            "Remote forward live test requires netcat with -w timeout support on the fixture host."
+            "Remote forward live test requires netcat with -w timeout support on the fixture host.",
         )
     }
 
@@ -173,7 +233,7 @@ final class AdvancedForwardLiveTests: LiveSSHTestCase {
         targetHost: String,
         targetPort: UInt16,
         username: String?,
-        password: String?
+        password: String?,
     ) throws -> String {
         let fileDescriptor = try connectLocalTCP(host: socksHost, port: socksPort)
         defer {
@@ -198,7 +258,7 @@ final class AdvancedForwardLiveTests: LiveSSHTestCase {
         socksHost: String,
         socksPort: UInt16,
         targetHost: String,
-        targetPort: UInt16
+        targetPort: UInt16,
     ) throws -> String {
         let fileDescriptor = try connectLocalTCP(host: socksHost, port: socksPort)
         defer {
@@ -292,7 +352,7 @@ final class AdvancedForwardLiveTests: LiveSSHTestCase {
             ai_addrlen: 0,
             ai_canonname: nil,
             ai_addr: nil,
-            ai_next: nil
+            ai_next: nil,
         )
         var addresses: UnsafeMutablePointer<addrinfo>?
         XCTAssertEqual(getaddrinfo(host, String(port), &hints, &addresses), 0)

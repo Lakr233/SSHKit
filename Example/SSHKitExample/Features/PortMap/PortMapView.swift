@@ -17,6 +17,21 @@ struct PortMapView: View {
             case .dynamic: "Dynamic (SOCKS5)"
             }
         }
+
+        var bindSectionTitle: String {
+            switch self {
+            case .local, .dynamic: "Local bind"
+            case .remote: "Server bind"
+            }
+        }
+
+        var targetSectionTitle: String {
+            switch self {
+            case .local: "Remote target"
+            case .remote: "Local target"
+            case .dynamic: ""
+            }
+        }
     }
 
     @State private var mode: Mode = .local
@@ -36,7 +51,7 @@ struct PortMapView: View {
                 }
                 .pickerStyle(.segmented)
             }
-            Section("Local bind") {
+            Section(mode.bindSectionTitle) {
                 LabeledContent("Host") {
                     TextField("Host", text: $localHost, prompt: Text("127.0.0.1"))
                         .labelsHidden()
@@ -58,7 +73,7 @@ struct PortMapView: View {
                 }
             }
             if mode != .dynamic {
-                Section("Remote target") {
+                Section(mode.targetSectionTitle) {
                     LabeledContent("Host") {
                         TextField("Host", text: $remoteHost, prompt: Text("127.0.0.1"))
                             .labelsHidden()
@@ -93,8 +108,13 @@ struct PortMapView: View {
             }
             if let active = activeForward {
                 Section("Active") {
-                    Text("\(active.kind.title) — bound \(active.boundHost):\(active.boundPort)")
+                    Text("\(active.kind.title) — bound \(active.boundHost):\(active.displayPort)")
                         .font(.callout.monospaced())
+                    if active.kind == .remote, active.boundPort == 0, active.requestedBindPort != 0 {
+                        Text("Server omitted bound port in tcpip-forward reply (libssh quirk for explicit ports). Listening on \(active.requestedBindPort).")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
             if !status.isEmpty {
@@ -163,7 +183,8 @@ struct PortMapView: View {
                             kind: kind,
                             forward: forward,
                             boundHost: forward.boundHost,
-                            boundPort: forward.boundPort
+                            boundPort: forward.boundPort,
+                            requestedBindPort: lPort
                         )
                         status = "Forward opened. Tip: keep this screen alive while the tunnel is in use."
                     }
@@ -207,5 +228,10 @@ struct PortMapView: View {
         let forward: SSHPortForward
         let boundHost: String
         let boundPort: UInt16
+        let requestedBindPort: UInt16
+
+        var displayPort: UInt16 {
+            boundPort != 0 ? boundPort : requestedBindPort
+        }
     }
 }

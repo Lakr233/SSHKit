@@ -15,7 +15,7 @@ public final class SSHPortForward: @unchecked Sendable {
 
     public func close(
         callbackQueue: DispatchQueue = .main,
-        completion: @escaping (Result<Void, SSHKitError>) -> Void
+        completion: @escaping (Result<Void, SSHKitError>) -> Void,
     ) {
         forward.close { error in
             if let error = error as NSError? {

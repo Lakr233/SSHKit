@@ -15,7 +15,7 @@ final class CancellationLiveTests: LiveSSHTestCase {
 
         let configuration = try privateKeyConfiguration(
             fixture: fixture,
-            proxyRoute: .socks5(SSHProxyEndpoint(host: "127.0.0.1", port: blockingRoute.port))
+            proxyRoute: .socks5(SSHProxyEndpoint(host: "127.0.0.1", port: blockingRoute.port)),
         )
         let connectTask = Task {
             _ = try await SSHClient.connect(configuration: configuration)
@@ -144,7 +144,7 @@ final class CancellationLiveTests: LiveSSHTestCase {
     private func assertEventuallyRejectsCommandAfterCancellation(
         _ connection: SSHConnection,
         file: StaticString = #filePath,
-        line: UInt = #line
+        line: UInt = #line,
     ) async {
         let deadline = Date().addingTimeInterval(5)
         var lastError: Error?
@@ -167,7 +167,7 @@ final class CancellationLiveTests: LiveSSHTestCase {
 
     private func privateKeyConfiguration(
         fixture: AlpineSSHFixture,
-        proxyRoute: SSHProxyRoute? = nil
+        proxyRoute: SSHProxyRoute? = nil,
     ) throws -> SSHClientConfiguration {
         try SSHClientConfiguration(
             host: fixture.host,
@@ -176,14 +176,14 @@ final class CancellationLiveTests: LiveSSHTestCase {
             authentication: .privateKeyFile(path: makePrivateKeyFile(fixture: fixture)),
             hostKeyPolicy: .knownHostsFile(makeKnownHostsFile(fixture: fixture)),
             timeout: 10,
-            proxyRoute: proxyRoute
+            proxyRoute: proxyRoute,
         )
     }
 
     private func assertTaskFailsWithCancellation(
         _ task: Task<Void, Error>,
         file: StaticString = #filePath,
-        line: UInt = #line
+        line: UInt = #line,
     ) async {
         do {
             _ = try await task.value

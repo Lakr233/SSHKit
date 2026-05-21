@@ -14,7 +14,7 @@ final class AuthenticationFailureLiveTests: LiveSSHTestCase {
                 username: fixture.username,
                 authentication: .password("wrong-\(UUID().uuidString)"),
                 hostKeyPolicy: .knownHostsFile(makeKnownHostsFile(fixture: fixture)),
-                timeout: 10
+                timeout: 10,
             ))
             try await connection.close()
             XCTFail("Wrong password connected successfully.")
@@ -34,7 +34,7 @@ final class AuthenticationFailureLiveTests: LiveSSHTestCase {
                 username: fixture.username,
                 authentication: .privateKeyFile(path: makePrivateKeyFile(fixture: fixture)),
                 hostKeyPolicy: .knownHostsFile(makeMismatchedKnownHostsFile(fixture: fixture)),
-                timeout: 10
+                timeout: 10,
             ))
             try await connection.close()
             XCTFail("Known-hosts mismatch connected successfully.")

@@ -22,7 +22,7 @@ public final class SSHCommand: @unchecked Sendable {
     public func write(
         _ data: Data,
         callbackQueue: DispatchQueue = .main,
-        completion: @escaping (Result<Void, SSHKitError>) -> Void
+        completion: @escaping (Result<Void, SSHKitError>) -> Void,
     ) {
         precondition(data.isEmpty == false, "Command write data must not be empty.")
 
@@ -53,7 +53,7 @@ public final class SSHCommand: @unchecked Sendable {
 
     public func sendEOF(
         callbackQueue: DispatchQueue = .main,
-        completion: @escaping (Result<Void, SSHKitError>) -> Void
+        completion: @escaping (Result<Void, SSHKitError>) -> Void,
     ) {
         command.sendEOF { error in
             Self.complete(error: error, callbackQueue: callbackQueue, completion: completion)
@@ -75,7 +75,7 @@ public final class SSHCommand: @unchecked Sendable {
 
     public func close(
         callbackQueue: DispatchQueue = .main,
-        completion: @escaping (Result<Void, SSHKitError>) -> Void
+        completion: @escaping (Result<Void, SSHKitError>) -> Void,
     ) {
         command.close { error in
             Self.complete(error: error, callbackQueue: callbackQueue, completion: completion)
@@ -106,7 +106,7 @@ public final class SSHCommand: @unchecked Sendable {
     private static func complete(
         error: Error?,
         callbackQueue: DispatchQueue,
-        completion: @escaping (Result<Void, SSHKitError>) -> Void
+        completion: @escaping (Result<Void, SSHKitError>) -> Void,
     ) {
         if let error = error as NSError? {
             callbackQueue.async {

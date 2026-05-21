@@ -5,7 +5,7 @@ public extension SSHConnection {
         localURL: URL,
         toRemotePath remotePath: String,
         permissions: UInt16 = 0o644,
-        maximumSize: UInt64 = 64 * 1024 * 1024
+        maximumSize: UInt64 = 64 * 1024 * 1024,
     ) async throws {
         try SCPPathValidator.validateRemotePath(remotePath)
         try SCPPathValidator.validatePermissions(permissions)
@@ -35,7 +35,7 @@ public extension SSHConnection {
     func downloadFileWithSCP(
         remotePath: String,
         toLocalURL localURL: URL,
-        maximumSize: UInt64 = 64 * 1024 * 1024
+        maximumSize: UInt64 = 64 * 1024 * 1024,
     ) async throws {
         try SCPPathValidator.validateRemotePath(remotePath)
         let command = try await openCommand("scp -f -- \(SCPPathValidator.shellQuoted(remotePath))")

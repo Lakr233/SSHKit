@@ -17,7 +17,7 @@ public final class SSHConnection: @unchecked Sendable {
     public func diagnosticReport(
         phase: String = "connected",
         metadata: [String: String] = [:],
-        recentEvents: [SSHLogEvent] = []
+        recentEvents: [SSHLogEvent] = [],
     ) -> SSHDiagnosticReport {
         configuration.diagnosticReport(phase: phase, metadata: metadata, recentEvents: recentEvents)
     }
@@ -25,7 +25,7 @@ public final class SSHConnection: @unchecked Sendable {
     public func execute(
         _ command: String,
         callbackQueue: DispatchQueue = .main,
-        completion: @escaping (Result<SSHCommandResult, SSHKitError>) -> Void
+        completion: @escaping (Result<SSHCommandResult, SSHKitError>) -> Void,
     ) {
         session.executeCommand(command) { result, error in
             if let error = error as NSError? {
@@ -46,7 +46,7 @@ public final class SSHConnection: @unchecked Sendable {
                 standardOutput: result.standardOutput,
                 standardError: result.standardError,
                 exitStatus: result.exitStatus,
-                exitSignal: result.exitSignal
+                exitSignal: result.exitSignal,
             )
             callbackQueue.async {
                 completion(.success(commandResult))
@@ -56,7 +56,7 @@ public final class SSHConnection: @unchecked Sendable {
 
     public func close(
         callbackQueue: DispatchQueue = .main,
-        completion: @escaping (Result<Void, SSHKitError>) -> Void
+        completion: @escaping (Result<Void, SSHKitError>) -> Void,
     ) {
         session.disconnect { error in
             if let error = error as NSError? {
@@ -78,7 +78,7 @@ public final class SSHConnection: @unchecked Sendable {
         rows: UInt16 = 24,
         callbackQueue: DispatchQueue = .main,
         eventHandler: @escaping @Sendable (SSHShellEvent) -> Void,
-        completion: @escaping (Result<SSHShell, SSHKitError>) -> Void
+        completion: @escaping (Result<SSHShell, SSHKitError>) -> Void,
     ) {
         precondition(terminalType.isEmpty == false, "Shell terminal type must not be empty.")
         precondition(columns > 0, "PTY columns must be greater than zero.")
@@ -93,7 +93,7 @@ public final class SSHConnection: @unchecked Sendable {
                 callbackQueue.async {
                     eventHandler(shellEvent)
                 }
-            }
+            },
         ) { shell, error in
             if let error = error as NSError? {
                 callbackQueue.async {
@@ -119,7 +119,7 @@ public final class SSHConnection: @unchecked Sendable {
         _ command: String,
         callbackQueue: DispatchQueue = .main,
         eventHandler: @escaping @Sendable (SSHCommandEvent) -> Void,
-        completion: @escaping (Result<SSHCommand, SSHKitError>) -> Void
+        completion: @escaping (Result<SSHCommand, SSHKitError>) -> Void,
     ) {
         precondition(command.isEmpty == false, "Command must not be empty.")
 
@@ -183,7 +183,7 @@ public final class SSHConnection: @unchecked Sendable {
 
     public func openSFTP(
         callbackQueue: DispatchQueue = .main,
-        completion: @escaping (Result<SFTPClient, SSHKitError>) -> Void
+        completion: @escaping (Result<SFTPClient, SSHKitError>) -> Void,
     ) {
         session.openSFTP { client, error in
             if let error = error as NSError? {
@@ -226,7 +226,7 @@ public final class SSHConnection: @unchecked Sendable {
         host: String,
         port: UInt16,
         callbackQueue: DispatchQueue = .main,
-        completion: @escaping (Result<SSHTunnelChannel, SSHKitError>) -> Void
+        completion: @escaping (Result<SSHTunnelChannel, SSHKitError>) -> Void,
     ) {
         precondition(host.isEmpty == false, "Direct TCP channel host must not be empty.")
         precondition(port > 0, "Direct TCP channel port must be greater than zero.")
@@ -273,7 +273,7 @@ public final class SSHConnection: @unchecked Sendable {
         remoteHost: String,
         remotePort: UInt16,
         callbackQueue: DispatchQueue = .main,
-        completion: @escaping (Result<SSHPortForward, SSHKitError>) -> Void
+        completion: @escaping (Result<SSHPortForward, SSHKitError>) -> Void,
     ) {
         precondition(localHost.isEmpty == false, "Local forward bind host must not be empty.")
         precondition(remoteHost.isEmpty == false, "Local forward target host must not be empty.")
@@ -283,7 +283,7 @@ public final class SSHConnection: @unchecked Sendable {
             fromHost: localHost,
             port: localPort,
             toHost: remoteHost,
-            targetPort: remotePort
+            targetPort: remotePort,
         ) { forward, error in
             if let error = error as NSError? {
                 callbackQueue.async {
@@ -309,7 +309,7 @@ public final class SSHConnection: @unchecked Sendable {
         localHost: String = "127.0.0.1",
         localPort: UInt16 = 0,
         remoteHost: String,
-        remotePort: UInt16
+        remotePort: UInt16,
     ) async throws -> SSHPortForward {
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -329,7 +329,7 @@ public final class SSHConnection: @unchecked Sendable {
         localHost: String,
         localPort: UInt16,
         callbackQueue: DispatchQueue = .main,
-        completion: @escaping (Result<SSHPortForward, SSHKitError>) -> Void
+        completion: @escaping (Result<SSHPortForward, SSHKitError>) -> Void,
     ) {
         precondition(remoteHost.isEmpty == false, "Remote forward bind host must not be empty.")
         precondition(localHost.isEmpty == false, "Remote forward target host must not be empty.")
@@ -339,7 +339,7 @@ public final class SSHConnection: @unchecked Sendable {
             fromHost: remoteHost,
             port: remotePort,
             toHost: localHost,
-            targetPort: localPort
+            targetPort: localPort,
         ) { forward, error in
             Self.completePortForward(forward, error: error, callbackQueue: callbackQueue, completion: completion)
         }
@@ -351,7 +351,7 @@ public final class SSHConnection: @unchecked Sendable {
         username: String? = nil,
         password: String? = nil,
         callbackQueue: DispatchQueue = .main,
-        completion: @escaping (Result<SSHPortForward, SSHKitError>) -> Void
+        completion: @escaping (Result<SSHPortForward, SSHKitError>) -> Void,
     ) {
         precondition(localHost.isEmpty == false, "Dynamic forward bind host must not be empty.")
 
@@ -364,7 +364,7 @@ public final class SSHConnection: @unchecked Sendable {
         remoteHost: String = "127.0.0.1",
         remotePort: UInt16 = 0,
         localHost: String,
-        localPort: UInt16
+        localPort: UInt16,
     ) async throws -> SSHPortForward {
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -382,7 +382,7 @@ public final class SSHConnection: @unchecked Sendable {
         localHost: String = "127.0.0.1",
         localPort: UInt16 = 0,
         username: String? = nil,
-        password: String? = nil
+        password: String? = nil,
     ) async throws -> SSHPortForward {
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -400,7 +400,7 @@ public final class SSHConnection: @unchecked Sendable {
         _ forward: SSHKitObjC.SSHKitPortForward?,
         error: Error?,
         callbackQueue: DispatchQueue,
-        completion: @escaping (Result<SSHPortForward, SSHKitError>) -> Void
+        completion: @escaping (Result<SSHPortForward, SSHKitError>) -> Void,
     ) {
         if let error = error as NSError? {
             callbackQueue.async {
@@ -425,7 +425,7 @@ public final class SSHConnection: @unchecked Sendable {
         terminalType: String = "xterm-256color",
         columns: UInt16 = 80,
         rows: UInt16 = 24,
-        eventHandler: @escaping @Sendable (SSHShellEvent) -> Void
+        eventHandler: @escaping @Sendable (SSHShellEvent) -> Void,
     ) async throws -> SSHShell {
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -434,7 +434,7 @@ public final class SSHConnection: @unchecked Sendable {
                     columns: columns,
                     rows: rows,
                     callbackQueue: .global(),
-                    eventHandler: eventHandler
+                    eventHandler: eventHandler,
                 ) { result in
                     continuation.resume(with: result)
                 }

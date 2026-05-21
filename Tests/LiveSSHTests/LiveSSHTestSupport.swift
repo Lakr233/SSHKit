@@ -146,8 +146,9 @@ class LiveSSHTestCase: XCTestCase {
                 eventCapture.appendStandardOutput(data)
             case let .standardError(data):
                 eventCapture.appendStandardError(data)
-            case let .closed(status):
+            case let .closed(status, exitSignal: exitSignal):
                 eventCapture.setExitStatus(status)
+                eventCapture.setExitSignal(exitSignal)
                 closedExpectation.fulfill()
             }
         } completion: { result in
@@ -166,6 +167,7 @@ class LiveSSHTestCase: XCTestCase {
             standardOutput: eventCapture.standardOutput(),
             standardError: eventCapture.standardError(),
             exitStatus: XCTUnwrap(eventCapture.exitStatus()),
+            exitSignal: eventCapture.exitSignal(),
         )
     }
 
@@ -441,6 +443,7 @@ final class CommandEventCapture: @unchecked Sendable {
     private var error = Data()
     private var errorChunks = [Data]()
     private var status: Int32?
+    private var signal: String?
 
     func appendStandardOutput(_ data: Data) {
         lock.lock()
@@ -462,6 +465,12 @@ final class CommandEventCapture: @unchecked Sendable {
         lock.unlock()
     }
 
+    func setExitSignal(_ exitSignal: String?) {
+        lock.lock()
+        signal = exitSignal
+        lock.unlock()
+    }
+
     func standardOutput() -> Data {
         lock.lock()
         defer { lock.unlock() }
@@ -478,6 +487,12 @@ final class CommandEventCapture: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return status
+    }
+
+    func exitSignal() -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return signal
     }
 
     func standardOutputEventCount() -> Int {

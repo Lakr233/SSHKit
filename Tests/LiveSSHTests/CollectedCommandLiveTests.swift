@@ -49,4 +49,14 @@ final class CollectedCommandLiveTests: LiveSSHTestCase {
             throw error
         }
     }
+
+    func testPrivateKeyLoginCapturesExitSignal() throws {
+        try requireLiveTestsEnabled()
+
+        try withPrivateKeyConnection { connection in
+            let result = try runCommand("sh -c 'kill -TERM $$'", on: connection)
+
+            XCTAssertEqual(result.exitSignal, "TERM")
+        }
+    }
 }

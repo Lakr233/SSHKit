@@ -4,7 +4,7 @@ import SSHKitObjC
 public enum SSHCommandEvent: Equatable, Sendable {
     case standardOutput(Data)
     case standardError(Data)
-    case closed(Int32)
+    case closed(Int32, exitSignal: String? = nil)
 }
 
 public final class SSHCommand: @unchecked Sendable {
@@ -97,7 +97,7 @@ public final class SSHCommand: @unchecked Sendable {
         case .standardError:
             return .standardError(event.data)
         case .closed:
-            return .closed(event.exitStatus)
+            return .closed(event.exitStatus, exitSignal: event.exitSignal)
         @unknown default:
             preconditionFailure("Unknown SSH command event kind: \(event.kind.rawValue).")
         }

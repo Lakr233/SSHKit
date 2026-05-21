@@ -46,6 +46,7 @@ public final class SSHConnection: @unchecked Sendable {
                 standardOutput: result.standardOutput,
                 standardError: result.standardError,
                 exitStatus: result.exitStatus,
+                exitSignal: result.exitSignal,
             )
             callbackQueue.async {
                 completion(.success(commandResult))

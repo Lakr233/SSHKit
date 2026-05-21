@@ -11,7 +11,7 @@
 @class SSHCoreSessionWorker;
 
 typedef void (^SSHCoreShellClosedBlock)(int32_t exitStatus);
-typedef void (^SSHCoreCommandClosedBlock)(int32_t exitStatus);
+typedef void (^SSHCoreCommandClosedBlock)(int32_t exitStatus, NSString *_Nullable exitSignal);
 typedef void (^SSHCoreSFTPCloseHandler)(void);
 typedef void (^SSHCoreTunnelCloseHandler)(void);
 

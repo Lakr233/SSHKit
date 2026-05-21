@@ -21,11 +21,19 @@
 - (instancetype)initWithStandardOutput:(NSData *)standardOutput
                          standardError:(NSData *)standardError
                             exitStatus:(int32_t)exitStatus {
+    return [self initWithStandardOutput:standardOutput standardError:standardError exitStatus:exitStatus exitSignal:nil];
+}
+
+- (instancetype)initWithStandardOutput:(NSData *)standardOutput
+                         standardError:(NSData *)standardError
+                            exitStatus:(int32_t)exitStatus
+                            exitSignal:(NSString *)exitSignal {
     self = [super init];
     if (self) {
         _standardOutput = [standardOutput copy];
         _standardError = [standardError copy];
         _exitStatus = exitStatus;
+        _exitSignal = [exitSignal copy];
     }
     return self;
 }
@@ -92,11 +100,19 @@
 @implementation SSHKitCommandEvent
 
 - (instancetype)initWithKind:(SSHKitCommandEventKind)kind data:(NSData *)data exitStatus:(int32_t)exitStatus {
+    return [self initWithKind:kind data:data exitStatus:exitStatus exitSignal:nil];
+}
+
+- (instancetype)initWithKind:(SSHKitCommandEventKind)kind
+                        data:(NSData *)data
+                  exitStatus:(int32_t)exitStatus
+                  exitSignal:(NSString *)exitSignal {
     self = [super init];
     if (self) {
         _kind = kind;
         _data = [data copy];
         _exitStatus = exitStatus;
+        _exitSignal = [exitSignal copy];
     }
     return self;
 }
@@ -542,7 +558,7 @@
         __block BOOL shouldDeliverClosedEvent = YES;
         SSHKitCommand *streamingCommand = [self.client openCommand:command
                                                      eventHandler:eventHandler
-                                                         onClosed:^(int32_t exitStatus) {
+                                                         onClosed:^(int32_t exitStatus, NSString *exitSignal) {
             [self.worker async:^{
                 if (!shouldDeliverClosedEvent) {
                     return;
@@ -552,7 +568,8 @@
                 }
                 SSHKitCommandEvent *event = [[SSHKitCommandEvent alloc] initWithKind:SSHKitCommandEventKindClosed
                                                                                 data:[NSData data]
-                                                                          exitStatus:exitStatus];
+                                                                          exitStatus:exitStatus
+                                                                          exitSignal:exitSignal];
                 eventHandler(event);
             }];
         } error:&error];

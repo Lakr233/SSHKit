@@ -8,10 +8,15 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, readonly) NSData *standardOutput;
 @property (nonatomic, copy, readonly) NSData *standardError;
 @property (nonatomic, readonly) int32_t exitStatus;
+@property (nonatomic, copy, nullable, readonly) NSString *exitSignal;
 
 - (instancetype)initWithStandardOutput:(NSData *)standardOutput
                          standardError:(NSData *)standardError
                             exitStatus:(int32_t)exitStatus;
+- (instancetype)initWithStandardOutput:(NSData *)standardOutput
+                         standardError:(NSData *)standardError
+                            exitStatus:(int32_t)exitStatus
+                            exitSignal:(nullable NSString *)exitSignal;
 
 @end
 
@@ -82,8 +87,13 @@ typedef NS_ENUM(NSInteger, SSHKitCommandEventKind) {
 @property (nonatomic, readonly) SSHKitCommandEventKind kind;
 @property (nonatomic, copy, readonly) NSData *data;
 @property (nonatomic, readonly) int32_t exitStatus;
+@property (nonatomic, copy, nullable, readonly) NSString *exitSignal;
 
 - (instancetype)initWithKind:(SSHKitCommandEventKind)kind data:(NSData *)data exitStatus:(int32_t)exitStatus;
+- (instancetype)initWithKind:(SSHKitCommandEventKind)kind
+                        data:(NSData *)data
+                  exitStatus:(int32_t)exitStatus
+                  exitSignal:(nullable NSString *)exitSignal;
 
 @end
 

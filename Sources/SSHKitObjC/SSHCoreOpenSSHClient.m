@@ -390,7 +390,7 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
             return;
         }
 
-        [self finishWithExitStatus:SSHCoreAbnormalExitStatus];
+        [self finishWithExitStatus:SSHCoreAbnormalExitStatus exitSignal:nil];
         completion(nil);
     });
 }
@@ -402,12 +402,15 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
 
     if (![self drainStream:0 eventKind:SSHKitCommandEventKindStandardOutput] ||
         ![self drainStream:1 eventKind:SSHKitCommandEventKindStandardError]) {
-        [self finishWithExitStatus:-1];
+        [self finishWithExitStatus:SSHCoreAbnormalExitStatus exitSignal:nil];
         return;
     }
 
     if (ssh_channel_is_eof(self.channel) || ssh_channel_is_closed(self.channel)) {
-        [self finishWithExitStatus:[self exitStatus]];
+        int32_t exitStatus = SSHCoreAbnormalExitStatus;
+        NSString *exitSignal = nil;
+        [self getExitStatus:&exitStatus exitSignal:&exitSignal];
+        [self finishWithExitStatus:exitStatus exitSignal:exitSignal];
         return;
     }
 
@@ -433,21 +436,42 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
     }
 }
 
-- (int32_t)exitStatus {
+- (BOOL)getExitStatus:(int32_t *)exitStatus exitSignal:(NSString **)exitSignal {
     uint32_t exitCode = 0;
+    char *rawExitSignal = NULL;
     if (self.channel == NULL) {
-        return SSHCoreAbnormalExitStatus;
+        if (exitStatus != NULL) {
+            *exitStatus = SSHCoreAbnormalExitStatus;
+        }
+        if (exitSignal != NULL) {
+            *exitSignal = nil;
+        }
+        return NO;
     }
 
-    int exitState = ssh_channel_get_exit_state(self.channel, &exitCode, NULL, NULL);
+    int exitState = ssh_channel_get_exit_state(self.channel, &exitCode, &rawExitSignal, NULL);
     if (exitState != SSH_OK) {
-        return SSHCoreAbnormalExitStatus;
+        free(rawExitSignal);
+        if (exitStatus != NULL) {
+            *exitStatus = SSHCoreAbnormalExitStatus;
+        }
+        if (exitSignal != NULL) {
+            *exitSignal = nil;
+        }
+        return NO;
     }
 
-    return (int32_t)exitCode;
+    if (exitStatus != NULL) {
+        *exitStatus = (int32_t)exitCode;
+    }
+    if (exitSignal != NULL) {
+        *exitSignal = rawExitSignal != NULL ? [NSString stringWithUTF8String:rawExitSignal] : nil;
+    }
+    free(rawExitSignal);
+    return YES;
 }
 
-- (void)finishWithExitStatus:(int32_t)exitStatus {
+- (void)finishWithExitStatus:(int32_t)exitStatus exitSignal:(NSString *)exitSignal {
     if (self.finished) {
         return;
     }
@@ -461,7 +485,7 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
         ssh_channel_free(channel);
     }
 
-    self.onClosed(exitStatus);
+    self.onClosed(exitStatus, exitSignal);
 }
 
 - (void)invalidateOnWorkerQueue {
@@ -2610,9 +2634,9 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
     SSHCoreLibSSHCommandRuntime *runtime = [[SSHCoreLibSSHCommandRuntime alloc] initWithChannel:channel
                                                                                    workerQueue:self.worker.queue
                                                                                    eventHandler:eventHandler
-                                                                                       onClosed:^(int32_t exitStatus) {
+                                                                                       onClosed:^(int32_t exitStatus, NSString *exitSignal) {
         [weakSelf clearCurrentTask];
-        onClosed(exitStatus);
+        onClosed(exitStatus, exitSignal);
     }];
     [self.taskLock lock];
     self.currentTask = runtime;
@@ -3902,8 +3926,10 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
     }
 
     uint32_t exitStatus = 0;
-    int exitState = ssh_channel_get_exit_state(channel, &exitStatus, NULL, NULL);
+    char *rawExitSignal = NULL;
+    int exitState = ssh_channel_get_exit_state(channel, &exitStatus, &rawExitSignal, NULL);
     if (exitState != SSH_OK) {
+        free(rawExitSignal);
         if (error) {
             *error = SSHKitMakeError(SSHKitErrorCodeCommandFailed, @"SSH command finished without an exit status.");
         }
@@ -3912,17 +3938,24 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
         ssh_channel_free(channel);
         return nil;
     }
+    NSString *exitSignal = rawExitSignal != NULL ? [NSString stringWithUTF8String:rawExitSignal] : nil;
+    free(rawExitSignal);
 
     ssh_channel_send_eof(channel);
     ssh_channel_close(channel);
     ssh_channel_free(channel);
+    NSMutableDictionary<NSString *, NSString *> *metadata = [@{@"exitStatus": [NSString stringWithFormat:@"%d", (int32_t)exitStatus]} mutableCopy];
+    if (exitSignal.length > 0) {
+        metadata[@"exitSignal"] = exitSignal;
+    }
     [self emitLogLevel:SSHKitLogLevelInfo
                  phase:requestPTY ? @"shell" : @"command"
                message:requestPTY ? @"SSH PTY command finished." : @"SSH command finished."
-              metadata:@{@"exitStatus": [NSString stringWithFormat:@"%d", (int32_t)exitStatus]}];
+              metadata:metadata];
     return [[SSHKitCommandResult alloc] initWithStandardOutput:standardOutput
                                                 standardError:standardError
-                                                   exitStatus:(int32_t)exitStatus];
+                                                   exitStatus:(int32_t)exitStatus
+                                                   exitSignal:exitSignal];
 }
 
 - (nullable ssh_channel)openSessionChannelWithError:(NSError **)error {

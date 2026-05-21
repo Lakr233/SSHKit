@@ -66,7 +66,7 @@ final class StreamedCommandLiveTests: LiveSSHTestCase {
                     eventCapture.appendStandardOutput(data)
                 case let .standardError(data):
                     eventCapture.appendStandardError(data)
-                case let .closed(status):
+                case .closed(let status, exitSignal: _):
                     eventCapture.setExitStatus(status)
                     closedExpectation.fulfill()
                 }
@@ -98,7 +98,7 @@ final class StreamedCommandLiveTests: LiveSSHTestCase {
                     }
                 case let .standardError(data):
                     eventCapture.appendStandardError(data)
-                case let .closed(status):
+                case .closed(let status, exitSignal: _):
                     eventCapture.setExitStatus(status)
                     closedExpectation.fulfill()
                 }
@@ -129,7 +129,7 @@ final class StreamedCommandLiveTests: LiveSSHTestCase {
                     eventCapture.appendStandardOutput(data)
                 case let .standardError(data):
                     eventCapture.appendStandardError(data)
-                case let .closed(status):
+                case .closed(let status, exitSignal: _):
                     eventCapture.setExitStatus(status)
                     closedExpectation.fulfill()
                 }
@@ -144,6 +144,27 @@ final class StreamedCommandLiveTests: LiveSSHTestCase {
         }
     }
 
+    func testPrivateKeyLoginStreamsExitSignal() throws {
+        try requireLiveTestsEnabled()
+
+        try withPrivateKeyConnection { connection in
+            let closedExpectation = expectation(description: "Signaled streamed command closes")
+            let eventCapture = CommandEventCapture()
+            let command = try openStreamingCommand("sh -c 'kill -TERM $$'", on: connection) { event in
+                if case let .closed(status, exitSignal: exitSignal) = event {
+                    eventCapture.setExitStatus(status)
+                    eventCapture.setExitSignal(exitSignal)
+                    closedExpectation.fulfill()
+                }
+            }
+
+            wait(for: [closedExpectation], timeout: 15)
+            try assertCommandRejectsUseAfterClose(command)
+
+            XCTAssertEqual(eventCapture.exitSignal(), "TERM")
+        }
+    }
+
     func testPrivateKeyLoginRejectsSecondStreamingCommandWhileFirstRuns() throws {
         try requireLiveTestsEnabled()
 
@@ -151,7 +172,7 @@ final class StreamedCommandLiveTests: LiveSSHTestCase {
             let closedExpectation = expectation(description: "Long streamed command closes")
             var secondOpenResult: Result<SSHCommand, SSHKitError>?
             let command = try openStreamingCommand("sleep 10", on: connection) { event in
-                if case let .closed(status) = event {
+                if case .closed(let status, exitSignal: _) = event {
                     XCTAssertNotEqual(status, 0)
                     closedExpectation.fulfill()
                 }

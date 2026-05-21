@@ -61,8 +61,8 @@ Swift public names:
 | Auth input | `SSHAuthentication` |
 | Host trust policy | `SSHHostKeyPolicy` |
 | Authenticated transport | `SSHConnection` |
-| Collected command output | `SSHCommandResult` |
-| Streamed command | `SSHCommand` |
+| Collected command output | `SSHCommandResult` with stdout, stderr, exit status, and exit signal |
+| Streamed command | `SSHCommand` with stdout, stderr, close status, and close signal events |
 | PTY shell | `SSHShell` |
 | File subsystem | `SFTPClient` |
 | File handle | `SFTPFileHandle` |
@@ -365,5 +365,7 @@ SSHKit aims to cover the same application-level capability surface as modern Swi
 - legacy RSA opt-in
 - key generation helpers
 - latency measurement tools
+
+Collected command results expose `exitStatus` and nullable `exitSignal`. Streamed command close events expose the same exit metadata so callers can distinguish a normal non-zero status from remote signal termination.
 
 SSHKit exposes these capabilities through its own names and the blocking worker model described above.

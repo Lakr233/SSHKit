@@ -192,7 +192,7 @@ private struct SCPEventReader {
                 buffer.append(data)
             case let .standardError(data):
                 standardError.append(data)
-            case let .closed(status):
+            case .closed(let status, exitSignal: _):
                 guard status == 0 else {
                     let message = String(data: standardError, encoding: .utf8) ?? ""
                     throw SSHKitError(code: SSHKitErrorCode.commandFailed.rawValue, message: "\(context) exited with status \(status). \(message)")
@@ -240,7 +240,7 @@ private struct SCPEventReader {
                 }
             case let .standardError(data):
                 standardError.append(data)
-            case let .closed(status):
+            case .closed(let status, exitSignal: _):
                 let message = String(data: standardError, encoding: .utf8) ?? ""
                 throw SSHKitError(code: SSHKitErrorCode.commandFailed.rawValue, message: "\(context) ended with status \(status). \(message)")
             }

@@ -43,7 +43,7 @@ Deliver interactive terminal use and clear support diagnostics.
 - Implement shell stdin writes.
 - Implement shell stdout and stderr events.
 - Implement PTY resize.
-- Implement EOF and signal requests.
+- Implement streamed command EOF handling and exit signal metadata.
 - Implement keyboard-interactive authentication.
 - Implement authentication method discovery.
 - Add structured log events.

@@ -29,6 +29,19 @@ import Testing
     #expect(events == [.standardOutput(Data("one".utf8)), .closed(0)])
 }
 
+@Test func `command result stores exit signal`() {
+    let result = SSHCommandResult(standardOutput: Data(), standardError: Data(), exitStatus: 143, exitSignal: "TERM")
+
+    #expect(result.exitStatus == 143)
+    #expect(result.exitSignal == "TERM")
+}
+
+@Test func `command event bridge maps exit signal`() {
+    let event = SSHKitCommandEvent(kind: .closed, data: Data(), exitStatus: 143, exitSignal: "TERM")
+
+    #expect(SSHCommand.makeEvent(event) == .closed(143, exitSignal: "TERM"))
+}
+
 @Test func `SFTP entry keeps filename`() {
     let attributes = SFTPAttributes(size: 12, permissions: 0o644, uid: 501, gid: 20, type: 1)
     let entry = SFTPEntry(filename: "upload.txt", attributes: attributes)

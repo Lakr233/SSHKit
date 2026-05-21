@@ -327,6 +327,14 @@ Public diagnostics:
 
 Unexpected failures must surface. SSHKit avoids silent fallbacks, empty success values, and default data that hides broken state.
 
+## Algorithm Profiles
+
+`SSHAlgorithmProfile.modern` keeps libssh's modern defaults and sets the client RSA minimum to 3072 bits.
+`SSHAlgorithmProfile.legacyRSA` explicitly opts into `ssh-rsa` host-key and public-key algorithms and lowers the RSA minimum to 1024 bits for legacy endpoints.
+Custom profiles pass comma-separated libssh/OpenSSH algorithm lists directly to libssh. Lists may use libssh's OpenSSH-compatible `+`, `-`, and `^` modifiers.
+
+libssh rejects unsupported algorithm names during session configuration and algorithm inspection. SSHKit exposes those failures as typed errors. Public-key accepted algorithms inherit libssh's host-key defaults when the profile leaves `publicKeyAcceptedAlgorithms` unset. libssh exposes RSA minimum size as a set-only option, so the snapshot reports the accepted configured value when a profile supplies one and leaves it absent for libssh defaults. SSHKit's algorithm support is bounded by the vendored libssh/OpenSSL build; endpoints that require algorithms outside that build need server-side configuration changes or a custom libssh build.
+
 ## Compatibility Target
 
 SSHKit aims to cover the same application-level capability surface as modern Swift SSH libraries:

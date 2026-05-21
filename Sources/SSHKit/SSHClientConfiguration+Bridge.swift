@@ -11,6 +11,14 @@ extension SSHClientConfiguration {
                 logHandler(SSHLogEvent(event).redacted)
             }
         }
+        configuration.keyExchangeAlgorithms = algorithmProfile.keyExchangeAlgorithms
+        configuration.hostKeyAlgorithms = algorithmProfile.hostKeyAlgorithms
+        configuration.publicKeyAcceptedAlgorithms = algorithmProfile.publicKeyAcceptedAlgorithms
+        configuration.ciphersClientToServer = algorithmProfile.ciphersClientToServer
+        configuration.ciphersServerToClient = algorithmProfile.ciphersServerToClient
+        configuration.macsClientToServer = algorithmProfile.macsClientToServer
+        configuration.macsServerToClient = algorithmProfile.macsServerToClient
+        configuration.minimumRSAKeySize = algorithmProfile.minimumRSAKeySize.map(NSNumber.init(value:))
 
         switch authentication {
         case let .password(password):
@@ -65,6 +73,7 @@ extension SSHClientConfiguration {
                 authentication: jumpHost.authentication,
                 hostKeyPolicy: jumpHost.hostKeyPolicy,
                 timeout: jumpHost.timeout,
+                algorithmProfile: jumpHost.algorithmProfile,
             ).bridgeConfiguration
             configuration.proxyJump = jumpConfiguration
         }

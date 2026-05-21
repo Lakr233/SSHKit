@@ -83,6 +83,14 @@ typedef void (^SSHKitLogHandler)(SSHKitLogEvent *event);
 @property (nonatomic, copy, nullable) NSString *proxyUsername;
 @property (nonatomic, copy, nullable) NSString *proxyPassword;
 @property (nonatomic, copy, nullable) SSHKitConfiguration *proxyJumpConfiguration NS_SWIFT_NAME(proxyJump);
+@property (nonatomic, copy, nullable) NSString *keyExchangeAlgorithms;
+@property (nonatomic, copy, nullable) NSString *hostKeyAlgorithms;
+@property (nonatomic, copy, nullable) NSString *publicKeyAcceptedAlgorithms;
+@property (nonatomic, copy, nullable) NSString *ciphersClientToServer;
+@property (nonatomic, copy, nullable) NSString *ciphersServerToClient;
+@property (nonatomic, copy, nullable) NSString *macsClientToServer;
+@property (nonatomic, copy, nullable) NSString *macsServerToClient;
+@property (nonatomic, copy, nullable) NSNumber *minimumRSAKeySize;
 
 - (instancetype)initWithHost:(NSString *)host username:(NSString *)username;
 

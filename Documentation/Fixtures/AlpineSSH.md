@@ -18,6 +18,18 @@ export SSHKIT_LIVE_PRIVATE_KEY="<private-key-pem>"
 
 `SSHKIT_LIVE_KNOWN_HOSTS` should contain one complete OpenSSH known-hosts line. `SSHKIT_LIVE_PRIVATE_KEY` should contain a private key accepted by the fixture user.
 
+Legacy RSA compatibility tests use a second external fixture when available:
+
+```sh
+export SSHKIT_LEGACY_RSA_HOST="legacy-rsa.example.com"
+export SSHKIT_LEGACY_RSA_PORT="22"
+export SSHKIT_LEGACY_RSA_USERNAME="root"
+export SSHKIT_LEGACY_RSA_PASSWORD="<password>"
+export SSHKIT_LEGACY_RSA_KNOWN_HOSTS="<known-hosts-entry>"
+```
+
+`SSHKIT_LEGACY_RSA_HOST` must also point at an external fixture host. The legacy RSA test uses `SSHAlgorithmProfile.legacyRSA`, password authentication, known-host verification, and a real exec channel.
+
 ## Fixture Requirements
 
 The server should support:

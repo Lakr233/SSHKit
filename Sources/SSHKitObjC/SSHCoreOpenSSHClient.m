@@ -30,10 +30,51 @@
 static const int32_t SSHCoreAbnormalExitStatus = -1;
 static const uint64_t SSHCoreSFTPMaximumReadFileSize = 64 * 1024 * 1024;
 
+static BOOL SSHCoreSetAlgorithmString(ssh_session session, enum ssh_options_e option, NSString *value, NSString *name, NSString **failedField) {
+    if (value.length == 0) {
+        return YES;
+    }
+    if (ssh_options_set(session, option, value.UTF8String) == SSH_OK) {
+        return YES;
+    }
+    if (failedField) {
+        *failedField = name;
+    }
+    return NO;
+}
+
+static BOOL SSHCoreSetAlgorithmNumber(ssh_session session, enum ssh_options_e option, NSNumber *value, NSString *name, NSString **failedField) {
+    if (value == nil) {
+        return YES;
+    }
+    int intValue = value.intValue;
+    if (ssh_options_set(session, option, &intValue) == SSH_OK) {
+        return YES;
+    }
+    if (failedField) {
+        *failedField = name;
+    }
+    return NO;
+}
+
+static BOOL SSHCoreApplyAlgorithmProfile(ssh_session session, SSHKitConfiguration *configuration, NSString **failedField) {
+    return SSHCoreSetAlgorithmString(session, SSH_OPTIONS_KEY_EXCHANGE, configuration.keyExchangeAlgorithms, @"keyExchangeAlgorithms", failedField) &&
+           SSHCoreSetAlgorithmString(session, SSH_OPTIONS_HOSTKEYS, configuration.hostKeyAlgorithms, @"hostKeyAlgorithms", failedField) &&
+           SSHCoreSetAlgorithmString(session, SSH_OPTIONS_PUBLICKEY_ACCEPTED_TYPES, configuration.publicKeyAcceptedAlgorithms, @"publicKeyAcceptedAlgorithms", failedField) &&
+           SSHCoreSetAlgorithmString(session, SSH_OPTIONS_CIPHERS_C_S, configuration.ciphersClientToServer, @"ciphersClientToServer", failedField) &&
+           SSHCoreSetAlgorithmString(session, SSH_OPTIONS_CIPHERS_S_C, configuration.ciphersServerToClient, @"ciphersServerToClient", failedField) &&
+           SSHCoreSetAlgorithmString(session, SSH_OPTIONS_HMAC_C_S, configuration.macsClientToServer, @"macsClientToServer", failedField) &&
+           SSHCoreSetAlgorithmString(session, SSH_OPTIONS_HMAC_S_C, configuration.macsServerToClient, @"macsServerToClient", failedField) &&
+           SSHCoreSetAlgorithmNumber(session, SSH_OPTIONS_RSA_MIN_SIZE, configuration.minimumRSAKeySize, @"minimumRSAKeySize", failedField);
+}
+
 static int SSHCoreProxyJumpBeforeConnection(ssh_session session, void *userdata) {
     SSHKitConfiguration *configuration = (__bridge SSHKitConfiguration *)userdata;
     long timeout = (long)ceil(configuration.timeout);
     if (ssh_options_set(session, SSH_OPTIONS_TIMEOUT, &timeout) != SSH_OK) {
+        return SSH_ERROR;
+    }
+    if (!SSHCoreApplyAlgorithmProfile(session, configuration, NULL)) {
         return SSH_ERROR;
     }
     if (configuration.hostKeyPolicyKind == SSHKitHostKeyPolicyKindKnownHostsFile) {
@@ -3080,6 +3121,17 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
         ssh_options_set(session, SSH_OPTIONS_TIMEOUT, &timeout) != SSH_OK) {
         if (error) {
             *error = [self libSSHErrorWithSession:session code:SSHKitErrorCodeConnectionFailed fallback:@"Unable to configure libssh session."];
+        }
+        return NO;
+    }
+
+    NSString *failedAlgorithmField = nil;
+    if (!SSHCoreApplyAlgorithmProfile(session, self.configuration, &failedAlgorithmField)) {
+        if (error) {
+            NSString *fallback = failedAlgorithmField.length > 0
+                                     ? [NSString stringWithFormat:@"Unsupported SSH algorithm profile value for %@.", failedAlgorithmField]
+                                     : @"Unable to configure SSH algorithm profile.";
+            *error = [self libSSHErrorWithSession:session code:SSHKitErrorCodeConnectionFailed fallback:fallback];
         }
         return NO;
     }

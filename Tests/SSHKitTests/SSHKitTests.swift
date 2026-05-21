@@ -203,6 +203,48 @@ import Testing
     #expect(jump.knownHostsPath == "/tmp/jump_known_hosts")
 }
 
+@Test func `configuration bridge maps algorithm profile`() {
+    let configuration = SSHClientConfiguration(
+        host: "target.example.com",
+        username: "user",
+        authentication: .password("secret"),
+        hostKeyPolicy: .knownHostsFile("/tmp/known_hosts"),
+        algorithmProfile: .legacyRSA,
+    ).bridgeConfiguration
+
+    #expect(configuration.hostKeyAlgorithms == "+ssh-rsa")
+    #expect(configuration.publicKeyAcceptedAlgorithms == "+ssh-rsa")
+    #expect(configuration.minimumRSAKeySize == 1024)
+}
+
+@Test func `algorithm inspection exposes effective profile`() throws {
+    let snapshot = try SSHAlgorithmProfile.modern.inspectEffectiveAlgorithms()
+
+    #expect(snapshot.keyExchangeAlgorithms.isEmpty == false)
+    #expect(snapshot.hostKeyAlgorithms.isEmpty == false)
+    #expect(snapshot.publicKeyAcceptedAlgorithms.isEmpty == false)
+    #expect(snapshot.publicKeyAcceptedAlgorithms == snapshot.hostKeyAlgorithms)
+    #expect(snapshot.ciphersClientToServer.isEmpty == false)
+    #expect(snapshot.minimumRSAKeySize == 3072)
+}
+
+@Test func `custom algorithm profile changes inspected ciphers`() throws {
+    let modernSnapshot = try SSHAlgorithmProfile.modern.inspectEffectiveAlgorithms()
+    let firstModernCipher = try #require(modernSnapshot.ciphersClientToServer.split(separator: ",").first)
+    let customCipher = String(firstModernCipher)
+    let customSnapshot = try SSHAlgorithmProfile(ciphersClientToServer: customCipher).inspectEffectiveAlgorithms()
+
+    #expect(customSnapshot.ciphersClientToServer == customCipher)
+}
+
+@Test func `legacy RSA opt in changes inspected algorithms`() throws {
+    let snapshot = try SSHAlgorithmProfile.legacyRSA.inspectEffectiveAlgorithms()
+
+    #expect(snapshot.hostKeyAlgorithms.contains("ssh-rsa"))
+    #expect(snapshot.publicKeyAcceptedAlgorithms.contains("ssh-rsa"))
+    #expect(snapshot.minimumRSAKeySize == 1024)
+}
+
 @Test func `OpenSSH key generation exports authorized key`() throws {
     let keyPair = try SSHKeyGenerator.generateOpenSSHKeyPair(type: .ed25519, comment: "sshkit-test")
 

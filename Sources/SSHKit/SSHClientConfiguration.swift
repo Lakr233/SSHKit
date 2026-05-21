@@ -9,6 +9,7 @@ public struct SSHClientConfiguration: Sendable {
     public var timeout: TimeInterval
     public var logHandler: SSHLogHandler?
     public var proxyRoute: SSHProxyRoute?
+    public var algorithmProfile: SSHAlgorithmProfile
 
     public init(
         host: String,
@@ -19,6 +20,7 @@ public struct SSHClientConfiguration: Sendable {
         timeout: TimeInterval = 30,
         logHandler: SSHLogHandler? = nil,
         proxyRoute: SSHProxyRoute? = nil,
+        algorithmProfile: SSHAlgorithmProfile = .modern,
     ) {
         self.host = host
         self.port = port
@@ -28,6 +30,7 @@ public struct SSHClientConfiguration: Sendable {
         self.timeout = timeout
         self.logHandler = logHandler
         self.proxyRoute = proxyRoute
+        self.algorithmProfile = algorithmProfile
     }
 
     public func diagnosticReport(
@@ -71,6 +74,7 @@ public struct SSHJumpHost: Sendable {
     public var authentication: SSHAuthentication
     public var hostKeyPolicy: SSHHostKeyPolicy
     public var timeout: TimeInterval
+    public var algorithmProfile: SSHAlgorithmProfile
 
     public init(
         host: String,
@@ -79,6 +83,7 @@ public struct SSHJumpHost: Sendable {
         authentication: SSHAuthentication,
         hostKeyPolicy: SSHHostKeyPolicy,
         timeout: TimeInterval = 30,
+        algorithmProfile: SSHAlgorithmProfile = .modern,
     ) {
         precondition(host.isEmpty == false, "Jump host must not be empty.")
         precondition(port > 0, "Jump port must be greater than zero.")
@@ -90,6 +95,7 @@ public struct SSHJumpHost: Sendable {
         self.authentication = authentication
         self.hostKeyPolicy = hostKeyPolicy
         self.timeout = timeout
+        self.algorithmProfile = algorithmProfile
     }
 }
 

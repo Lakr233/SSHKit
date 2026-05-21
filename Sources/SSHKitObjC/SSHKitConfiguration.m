@@ -86,6 +86,14 @@
     copy.proxyUsername = self.proxyUsername;
     copy.proxyPassword = self.proxyPassword;
     copy.proxyJumpConfiguration = self.proxyJumpConfiguration;
+    copy.keyExchangeAlgorithms = self.keyExchangeAlgorithms;
+    copy.hostKeyAlgorithms = self.hostKeyAlgorithms;
+    copy.publicKeyAcceptedAlgorithms = self.publicKeyAcceptedAlgorithms;
+    copy.ciphersClientToServer = self.ciphersClientToServer;
+    copy.ciphersServerToClient = self.ciphersServerToClient;
+    copy.macsClientToServer = self.macsClientToServer;
+    copy.macsServerToClient = self.macsServerToClient;
+    copy.minimumRSAKeySize = self.minimumRSAKeySize;
     return copy;
 }
 

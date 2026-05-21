@@ -533,8 +533,10 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
                   listenerSocket:(int)listenerSocket
                        boundHost:(NSString *)boundHost
                        boundPort:(uint16_t)boundPort
-                      targetHost:(NSString *)targetHost
+                      targetHost:(nullable NSString *)targetHost
                       targetPort:(uint16_t)targetPort
+                     socksUsername:(nullable NSString *)socksUsername
+                     socksPassword:(nullable NSString *)socksPassword
                      workerQueue:(dispatch_queue_t)workerQueue
                     closeHandler:(SSHCoreTunnelCloseHandler)closeHandler
                           client:(SSHCoreOpenSSHClient *)client;
@@ -550,14 +552,53 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
 @property (nonatomic) dispatch_queue_t workerQueue;
 @property (nonatomic, copy) NSString *boundHost;
 @property (nonatomic) uint16_t boundPort;
-@property (nonatomic, copy) NSString *targetHost;
+@property (nonatomic, copy, nullable) NSString *targetHost;
 @property (nonatomic) uint16_t targetPort;
+@property (nonatomic, copy, nullable) NSString *socksUsername;
+@property (nonatomic, copy, nullable) NSString *socksPassword;
 @property (nonatomic, copy) SSHCoreTunnelCloseHandler closeHandler;
 @property (nonatomic, weak) SSHCoreOpenSSHClient *client;
 @property (nonatomic) NSLock *lock;
 @property (nonatomic) int listenerSocket;
 @property (nonatomic) int activeSocket;
 @property (nonatomic) BOOL closed;
+@property (nonatomic) BOOL didCallCloseHandler;
+@property (nonatomic) NSMutableArray<SSHKitCompletion> *closeCompletions;
+
+@end
+
+@interface SSHCoreLibSSHRemoteForwardRuntime : NSObject
+
+- (instancetype)initWithSession:(ssh_session)session
+                     remoteHost:(NSString *)remoteHost
+                     remotePort:(uint16_t)remotePort
+                      boundPort:(uint16_t)boundPort
+                     targetHost:(NSString *)targetHost
+                     targetPort:(uint16_t)targetPort
+                    workerQueue:(dispatch_queue_t)workerQueue
+                   closeHandler:(SSHCoreTunnelCloseHandler)closeHandler
+                         client:(SSHCoreOpenSSHClient *)client;
+- (void)start;
+- (void)closeWithCompletion:(SSHKitCompletion)completion;
+- (void)invalidateOnWorkerQueue;
+
+@end
+
+@interface SSHCoreLibSSHRemoteForwardRuntime ()
+
+@property (nonatomic) ssh_session session;
+@property (nonatomic, copy) NSString *remoteHost;
+@property (nonatomic) uint16_t remotePort;
+@property (nonatomic) uint16_t boundPort;
+@property (nonatomic, copy) NSString *targetHost;
+@property (nonatomic) uint16_t targetPort;
+@property (nonatomic) dispatch_queue_t workerQueue;
+@property (nonatomic, copy) SSHCoreTunnelCloseHandler closeHandler;
+@property (nonatomic, weak) SSHCoreOpenSSHClient *client;
+@property (nonatomic) NSLock *lock;
+@property (nonatomic) int activeSocket;
+@property (nonatomic) BOOL closed;
+@property (nonatomic) BOOL didCancelRemoteForward;
 @property (nonatomic) BOOL didCallCloseHandler;
 @property (nonatomic) NSMutableArray<SSHKitCompletion> *closeCompletions;
 
@@ -790,6 +831,8 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
                        boundPort:(uint16_t)boundPort
                       targetHost:(NSString *)targetHost
                       targetPort:(uint16_t)targetPort
+                    socksUsername:(NSString *)socksUsername
+                    socksPassword:(NSString *)socksPassword
                      workerQueue:(dispatch_queue_t)workerQueue
                     closeHandler:(SSHCoreTunnelCloseHandler)closeHandler
                           client:(SSHCoreOpenSSHClient *)client {
@@ -806,6 +849,8 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
         _boundPort = boundPort;
         _targetHost = [targetHost copy];
         _targetPort = targetPort;
+        _socksUsername = [socksUsername copy];
+        _socksPassword = [socksPassword copy];
         _workerQueue = workerQueue;
         _closeHandler = [closeHandler copy];
         _client = client;
@@ -864,12 +909,27 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
         }
 
         [self setActiveSocket:clientSocket];
-        ssh_channel channel = [self openForwardChannelForClientSocket:clientSocket];
+        NSString *targetHost = self.targetHost;
+        uint16_t targetPort = self.targetPort;
+        BOOL isDynamicRequest = targetHost == nil;
+        if (targetHost == nil) {
+            if (![self readSOCKSTargetHost:&targetHost port:&targetPort fromClientSocket:clientSocket]) {
+                SSHCoreCloseDescriptor(&clientSocket);
+                [self setActiveSocket:-1];
+                continue;
+            }
+        }
+        ssh_channel channel = [self openForwardChannelForClientSocket:clientSocket targetHost:targetHost targetPort:targetPort];
         if (channel != NULL) {
+            if (isDynamicRequest) {
+                [self sendSOCKSReply:0x00 toSocket:clientSocket];
+            }
             [self bridgeClientSocket:clientSocket channel:channel];
             ssh_channel_send_eof(channel);
             ssh_channel_close(channel);
             ssh_channel_free(channel);
+        } else if (isDynamicRequest) {
+            [self sendSOCKSReply:0x05 toSocket:clientSocket];
         }
         SSHCoreCloseDescriptor(&clientSocket);
         [self setActiveSocket:-1];
@@ -880,7 +940,7 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
     [self completePendingCloseCompletions];
 }
 
-- (nullable ssh_channel)openForwardChannelForClientSocket:(int)clientSocket {
+- (nullable ssh_channel)openForwardChannelForClientSocket:(int)clientSocket targetHost:(NSString *)targetHost targetPort:(uint16_t)targetPort {
     ssh_channel channel = ssh_channel_new(self.session);
     if (channel == NULL) {
         [self.client emitLogLevel:SSHKitLogLevelWarning phase:@"tunnel" message:@"SSH local forward could not allocate channel." metadata:@{}];
@@ -889,12 +949,12 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
 
     int sourcePort = 0;
     NSString *sourceHost = [self peerHostForSocket:clientSocket port:&sourcePort];
-    if (ssh_channel_open_forward(channel, self.targetHost.UTF8String, self.targetPort, sourceHost.UTF8String, sourcePort) != SSH_OK) {
+    if (ssh_channel_open_forward(channel, targetHost.UTF8String, targetPort, sourceHost.UTF8String, sourcePort) != SSH_OK) {
         [self.client emitLogLevel:SSHKitLogLevelWarning
                             phase:@"tunnel"
                           message:@"SSH local forward channel open failed."
-                         metadata:@{@"targetHost": self.targetHost,
-                                    @"targetPort": [NSString stringWithFormat:@"%hu", self.targetPort],
+                         metadata:@{@"targetHost": targetHost,
+                                    @"targetPort": [NSString stringWithFormat:@"%hu", targetPort],
                                     @"sourceHost": sourceHost,
                                     @"sourcePort": [NSString stringWithFormat:@"%d", sourcePort]}];
         ssh_channel_free(channel);
@@ -943,6 +1003,150 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
             break;
         }
     }
+}
+
+- (BOOL)readSOCKSTargetHost:(NSString **)targetHost port:(uint16_t *)targetPort fromClientSocket:(int)clientSocket {
+    uint8_t header[2];
+    if (![self readExactly:header length:sizeof(header) fromSocket:clientSocket] || header[0] != 0x05 || header[1] == 0) {
+        return NO;
+    }
+
+    NSMutableData *methods = [NSMutableData dataWithLength:header[1]];
+    if (![self readExactly:methods.mutableBytes length:methods.length fromSocket:clientSocket]) {
+        return NO;
+    }
+
+    uint8_t selectedMethod = 0xFF;
+    const uint8_t *methodBytes = methods.bytes;
+    BOOL wantsPassword = self.socksUsername != nil || self.socksPassword != nil;
+    for (NSUInteger index = 0; index < methods.length; index++) {
+        if (!wantsPassword && methodBytes[index] == 0x00) {
+            selectedMethod = 0x00;
+            break;
+        }
+        if (wantsPassword && methodBytes[index] == 0x02) {
+            selectedMethod = 0x02;
+            break;
+        }
+    }
+
+    uint8_t selection[2] = {0x05, selectedMethod};
+    if (![self writeBytes:(const char *)selection length:sizeof(selection) toSocket:clientSocket] || selectedMethod == 0xFF) {
+        return NO;
+    }
+    if (selectedMethod == 0x02 && ![self authenticateSOCKSUserPasswordOnSocket:clientSocket]) {
+        return NO;
+    }
+
+    uint8_t requestHeader[4];
+    if (![self readExactly:requestHeader length:sizeof(requestHeader) fromSocket:clientSocket] ||
+        requestHeader[0] != 0x05 ||
+        requestHeader[1] != 0x01 ||
+        requestHeader[2] != 0x00) {
+        [self sendSOCKSReply:0x07 toSocket:clientSocket];
+        return NO;
+    }
+
+    NSString *host = nil;
+    switch (requestHeader[3]) {
+        case 0x01: {
+            uint8_t address[4];
+            if (![self readExactly:address length:sizeof(address) fromSocket:clientSocket]) {
+                return NO;
+            }
+            char buffer[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, address, buffer, sizeof(buffer));
+            host = [NSString stringWithUTF8String:buffer];
+            break;
+        }
+        case 0x03: {
+            uint8_t length = 0;
+            if (![self readExactly:&length length:1 fromSocket:clientSocket] || length == 0) {
+                return NO;
+            }
+            NSMutableData *domain = [NSMutableData dataWithLength:length];
+            if (![self readExactly:domain.mutableBytes length:domain.length fromSocket:clientSocket]) {
+                return NO;
+            }
+            host = [[NSString alloc] initWithData:domain encoding:NSUTF8StringEncoding];
+            break;
+        }
+        case 0x04: {
+            uint8_t address[16];
+            if (![self readExactly:address length:sizeof(address) fromSocket:clientSocket]) {
+                return NO;
+            }
+            char buffer[INET6_ADDRSTRLEN];
+            inet_ntop(AF_INET6, address, buffer, sizeof(buffer));
+            host = [NSString stringWithUTF8String:buffer];
+            break;
+        }
+        default:
+            [self sendSOCKSReply:0x08 toSocket:clientSocket];
+            return NO;
+    }
+
+    uint8_t portBytes[2];
+    if (host.length == 0) {
+        [self sendSOCKSReply:0x01 toSocket:clientSocket];
+        return NO;
+    }
+    if (![self readExactly:portBytes length:sizeof(portBytes) fromSocket:clientSocket]) {
+        return NO;
+    }
+
+    *targetHost = host;
+    *targetPort = (uint16_t)((portBytes[0] << 8) | portBytes[1]);
+    return YES;
+}
+
+- (BOOL)authenticateSOCKSUserPasswordOnSocket:(int)clientSocket {
+    uint8_t header[2];
+    if (![self readExactly:header length:sizeof(header) fromSocket:clientSocket] || header[0] != 0x01) {
+        return NO;
+    }
+    NSMutableData *username = [NSMutableData dataWithLength:header[1]];
+    if (![self readExactly:username.mutableBytes length:username.length fromSocket:clientSocket]) {
+        return NO;
+    }
+    uint8_t passwordLength = 0;
+    if (![self readExactly:&passwordLength length:1 fromSocket:clientSocket]) {
+        return NO;
+    }
+    NSMutableData *password = [NSMutableData dataWithLength:passwordLength];
+    if (![self readExactly:password.mutableBytes length:password.length fromSocket:clientSocket]) {
+        return NO;
+    }
+
+    NSString *requestUsername = [[NSString alloc] initWithData:username encoding:NSUTF8StringEncoding] ?: @"";
+    NSString *requestPassword = [[NSString alloc] initWithData:password encoding:NSUTF8StringEncoding] ?: @"";
+    BOOL accepted = [requestUsername isEqualToString:self.socksUsername ?: @""] &&
+        [requestPassword isEqualToString:self.socksPassword ?: @""];
+    uint8_t response[2] = {0x01, accepted ? 0x00 : 0x01};
+    [self writeBytes:(const char *)response length:sizeof(response) toSocket:clientSocket];
+    return accepted;
+}
+
+- (void)sendSOCKSReply:(uint8_t)reply toSocket:(int)clientSocket {
+    uint8_t response[10] = {0x05, reply, 0x00, 0x01, 0, 0, 0, 0, 0, 0};
+    [self writeBytes:(const char *)response length:sizeof(response) toSocket:clientSocket];
+}
+
+- (BOOL)readExactly:(void *)buffer length:(NSUInteger)length fromSocket:(int)socket {
+    uint8_t *cursor = buffer;
+    NSUInteger remaining = length;
+    while (remaining > 0) {
+        ssize_t bytesRead = read(socket, cursor, remaining);
+        if (bytesRead < 0 && errno == EINTR) {
+            continue;
+        }
+        if (bytesRead <= 0) {
+            return NO;
+        }
+        cursor += bytesRead;
+        remaining -= (NSUInteger)bytesRead;
+    }
+    return YES;
 }
 
 - (BOOL)writeBytes:(const char *)bytes length:(size_t)length toChannel:(ssh_channel)channel {
@@ -998,7 +1202,7 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
 
 - (void)setActiveSocket:(int)activeSocket {
     [self.lock lock];
-    self.activeSocket = activeSocket;
+    _activeSocket = activeSocket;
     [self.lock unlock];
 }
 
@@ -1064,6 +1268,229 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
 }
 
 @end
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+
+@implementation SSHCoreLibSSHRemoteForwardRuntime
+
+- (instancetype)initWithSession:(ssh_session)session
+                     remoteHost:(NSString *)remoteHost
+                     remotePort:(uint16_t)remotePort
+                      boundPort:(uint16_t)boundPort
+                     targetHost:(NSString *)targetHost
+                     targetPort:(uint16_t)targetPort
+                    workerQueue:(dispatch_queue_t)workerQueue
+                   closeHandler:(SSHCoreTunnelCloseHandler)closeHandler
+                         client:(SSHCoreOpenSSHClient *)client {
+    self = [super init];
+    if (self) {
+        _session = session;
+        _remoteHost = [remoteHost copy];
+        _remotePort = remotePort;
+        _boundPort = boundPort;
+        _targetHost = [targetHost copy];
+        _targetPort = targetPort;
+        _workerQueue = workerQueue;
+        _closeHandler = [closeHandler copy];
+        _client = client;
+        _lock = [[NSLock alloc] init];
+        _activeSocket = -1;
+        _closeCompletions = [[NSMutableArray alloc] init];
+    }
+    return self;
+}
+
+- (void)start {
+    while (![self isClosed]) {
+        int destinationPort = 0;
+        ssh_channel channel = ssh_channel_accept_forward(self.session, 100, &destinationPort);
+        if (channel == NULL) {
+            continue;
+        }
+
+        int localSocket = [self openTargetSocket];
+        if (localSocket >= 0) {
+            [self setActiveSocket:localSocket];
+            [self bridgeLocalSocket:localSocket channel:channel];
+            SSHCoreCloseDescriptor(&localSocket);
+            [self setActiveSocket:-1];
+        } else {
+            [self.client emitLogLevel:SSHKitLogLevelWarning
+                                phase:@"tunnel"
+                              message:@"SSH remote forward local target connect failed."
+                             metadata:@{@"targetHost": self.targetHost,
+                                        @"targetPort": [NSString stringWithFormat:@"%hu", self.targetPort]}];
+        }
+        ssh_channel_send_eof(channel);
+        ssh_channel_close(channel);
+        ssh_channel_free(channel);
+    }
+
+    [self invalidateOnWorkerQueue];
+    [self callCloseHandlerIfNeeded];
+    [self completePendingCloseCompletions];
+}
+
+- (int)openTargetSocket {
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+
+    NSString *port = [NSString stringWithFormat:@"%hu", self.targetPort];
+    struct addrinfo *addresses = NULL;
+    if (getaddrinfo(self.targetHost.UTF8String, port.UTF8String, &hints, &addresses) != 0) {
+        return -1;
+    }
+    for (struct addrinfo *address = addresses; address != NULL; address = address->ai_next) {
+        int fileDescriptor = socket(address->ai_family, address->ai_socktype, address->ai_protocol);
+        if (fileDescriptor < 0) {
+            continue;
+        }
+        if (connect(fileDescriptor, address->ai_addr, address->ai_addrlen) == 0) {
+            freeaddrinfo(addresses);
+            return fileDescriptor;
+        }
+        close(fileDescriptor);
+    }
+    freeaddrinfo(addresses);
+    return -1;
+}
+
+- (void)bridgeLocalSocket:(int)localSocket channel:(ssh_channel)channel {
+    char buffer[32768];
+    while (![self isClosed] && ssh_channel_is_open(channel)) {
+        fd_set readSet;
+        FD_ZERO(&readSet);
+        FD_SET(localSocket, &readSet);
+        struct timeval timeout;
+        timeout.tv_sec = 0;
+        timeout.tv_usec = 10000;
+        int selectResult = select(localSocket + 1, &readSet, NULL, NULL, &timeout);
+        if (selectResult > 0 && FD_ISSET(localSocket, &readSet)) {
+            ssize_t bytesRead = read(localSocket, buffer, sizeof(buffer));
+            if (bytesRead <= 0 || ![self writeBytes:buffer length:(size_t)bytesRead toChannel:channel]) {
+                break;
+            }
+        } else if (selectResult < 0 && errno != EINTR) {
+            break;
+        }
+
+        while (YES) {
+            int bytesRead = ssh_channel_read_nonblocking(channel, buffer, sizeof(buffer), 0);
+            if (bytesRead == SSH_ERROR) {
+                return;
+            }
+            if (bytesRead <= 0) {
+                break;
+            }
+            if (![self writeBytes:buffer length:(size_t)bytesRead toSocket:localSocket]) {
+                return;
+            }
+        }
+        if (ssh_channel_is_eof(channel)) {
+            break;
+        }
+    }
+}
+
+- (BOOL)writeBytes:(const char *)bytes length:(size_t)length toChannel:(ssh_channel)channel {
+    size_t offset = 0;
+    while (offset < length) {
+        int written = ssh_channel_write(channel, bytes + offset, (uint32_t)MIN(length - offset, (size_t)UINT32_MAX));
+        if (written <= 0) {
+            return NO;
+        }
+        offset += (size_t)written;
+    }
+    return YES;
+}
+
+- (BOOL)writeBytes:(const char *)bytes length:(size_t)length toSocket:(int)socket {
+    size_t offset = 0;
+    while (offset < length) {
+        ssize_t written = write(socket, bytes + offset, length - offset);
+        if (written < 0 && errno == EINTR) {
+            continue;
+        }
+        if (written <= 0) {
+            return NO;
+        }
+        offset += (size_t)written;
+    }
+    return YES;
+}
+
+- (void)setActiveSocket:(int)activeSocket {
+    [self.lock lock];
+    _activeSocket = activeSocket;
+    [self.lock unlock];
+}
+
+- (BOOL)isClosed {
+    [self.lock lock];
+    BOOL closed = self.closed;
+    [self.lock unlock];
+    return closed;
+}
+
+- (void)closeWithCompletion:(SSHKitCompletion)completion {
+    [self.lock lock];
+    if (self.didCallCloseHandler) {
+        [self.lock unlock];
+        completion(nil);
+        return;
+    }
+    self.closed = YES;
+    int activeSocket = self.activeSocket;
+    [self.closeCompletions addObject:[completion copy]];
+    [self.lock unlock];
+
+    SSHCoreShutdownDescriptor(activeSocket);
+}
+
+- (void)invalidateOnWorkerQueue {
+    [self.lock lock];
+    self.closed = YES;
+    int activeSocket = self.activeSocket;
+    self.activeSocket = -1;
+    BOOL shouldCancelRemoteForward = !self.didCancelRemoteForward;
+    self.didCancelRemoteForward = YES;
+    [self.lock unlock];
+
+    SSHCoreCloseDescriptor(&activeSocket);
+    if (shouldCancelRemoteForward) {
+        ssh_forward_cancel(self.session, self.remoteHost.UTF8String, self.boundPort);
+    }
+}
+
+- (void)callCloseHandlerIfNeeded {
+    [self.lock lock];
+    if (self.didCallCloseHandler) {
+        [self.lock unlock];
+        return;
+    }
+    self.didCallCloseHandler = YES;
+    [self.lock unlock];
+    self.closeHandler();
+}
+
+- (void)completePendingCloseCompletions {
+    [self.lock lock];
+    NSArray<SSHKitCompletion> *completions = [self.closeCompletions copy];
+    [self.closeCompletions removeAllObjects];
+    [self.lock unlock];
+
+    for (SSHKitCompletion completion in completions) {
+        completion(nil);
+    }
+}
+
+@end
+
+#pragma clang diagnostic pop
 
 @implementation SSHCoreLibSSHSFTPFileRuntime
 
@@ -2274,6 +2701,8 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
                                                                                                 boundPort:boundPort
                                                                                                targetHost:remoteHost
                                                                                                targetPort:remotePort
+                                                                                            socksUsername:nil
+                                                                                            socksPassword:nil
                                                                                               workerQueue:self.worker.queue
                                                                                              closeHandler:^{
         [weakSelf clearCurrentTask];
@@ -2299,6 +2728,127 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
         [runtime closeWithCompletion:completion];
     }];
 }
+
+- (nullable SSHKitPortForward *)startDynamicForwardFromHost:(NSString *)localHost
+                                                       port:(uint16_t)localPort
+                                                   username:(NSString *)username
+                                                   password:(NSString *)password
+                                               closeHandler:(SSHCoreTunnelCloseHandler)closeHandler
+                                                      error:(NSError **)error {
+    [self emitLogLevel:SSHKitLogLevelInfo
+                 phase:@"tunnel"
+               message:@"SSH dynamic SOCKS forward start requested."
+              metadata:@{@"localHost": localHost,
+                         @"localPort": [NSString stringWithFormat:@"%hu", localPort]}];
+    if (self.session == NULL) {
+        if (error) {
+            *error = SSHKitMakeError(SSHKitErrorCodeInvalidState, @"SSH session is not connected.");
+        }
+        return nil;
+    }
+
+    uint16_t boundPort = 0;
+    int listenerSocket = [self openLocalForwardListenerAtHost:localHost port:localPort boundPort:&boundPort error:error];
+    if (listenerSocket < 0) {
+        return nil;
+    }
+
+    __weak SSHCoreOpenSSHClient *weakSelf = self;
+    SSHCoreLibSSHLocalForwardRuntime *runtime = [[SSHCoreLibSSHLocalForwardRuntime alloc] initWithSession:self.session
+                                                                                           listenerSocket:listenerSocket
+                                                                                                boundHost:localHost
+                                                                                                boundPort:boundPort
+                                                                                               targetHost:nil
+                                                                                               targetPort:0
+                                                                                            socksUsername:username
+                                                                                            socksPassword:password
+                                                                                              workerQueue:self.worker.queue
+                                                                                             closeHandler:^{
+        [weakSelf clearCurrentTask];
+        closeHandler();
+    }
+                                                                                                   client:self];
+    [self.taskLock lock];
+    self.currentTask = runtime;
+    [self.taskLock unlock];
+
+    dispatch_async(self.worker.queue, ^{
+        [runtime start];
+    });
+
+    [self emitLogLevel:SSHKitLogLevelInfo
+                 phase:@"tunnel"
+               message:@"SSH dynamic SOCKS forward started."
+              metadata:@{@"localHost": localHost,
+                         @"boundPort": [NSString stringWithFormat:@"%hu", boundPort]}];
+    return [[SSHKitPortForward alloc] initWithBoundHost:localHost boundPort:boundPort closeBlock:^(SSHKitCompletion completion) {
+        [runtime closeWithCompletion:completion];
+    }];
+}
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+
+- (nullable SSHKitPortForward *)startRemoteForwardFromHost:(NSString *)remoteHost
+                                                      port:(uint16_t)remotePort
+                                                    toHost:(NSString *)localHost
+                                                targetPort:(uint16_t)localPort
+                                              closeHandler:(SSHCoreTunnelCloseHandler)closeHandler
+                                                     error:(NSError **)error {
+    [self emitLogLevel:SSHKitLogLevelInfo
+                 phase:@"tunnel"
+               message:@"SSH remote forward start requested."
+              metadata:@{@"remoteHost": remoteHost,
+                         @"remotePort": [NSString stringWithFormat:@"%hu", remotePort],
+                         @"targetHost": localHost,
+                         @"targetPort": [NSString stringWithFormat:@"%hu", localPort]}];
+    if (self.session == NULL) {
+        if (error) {
+            *error = SSHKitMakeError(SSHKitErrorCodeInvalidState, @"SSH session is not connected.");
+        }
+        return nil;
+    }
+
+    int boundPort = 0;
+    if (ssh_forward_listen(self.session, remoteHost.UTF8String, remotePort, &boundPort) != SSH_OK) {
+        if (error) {
+            *error = SSHKitMakeError(SSHKitErrorCodeConnectionFailed, @"SSH remote forward listen failed.");
+        }
+        return nil;
+    }
+
+    __weak SSHCoreOpenSSHClient *weakSelf = self;
+    SSHCoreLibSSHRemoteForwardRuntime *runtime = [[SSHCoreLibSSHRemoteForwardRuntime alloc] initWithSession:self.session
+                                                                                                remoteHost:remoteHost
+                                                                                                remotePort:remotePort
+                                                                                                 boundPort:(uint16_t)boundPort
+                                                                                                targetHost:localHost
+                                                                                                targetPort:localPort
+                                                                                               workerQueue:self.worker.queue
+                                                                                              closeHandler:^{
+        [weakSelf clearCurrentTask];
+        closeHandler();
+    }
+                                                                                                    client:self];
+    [self.taskLock lock];
+    self.currentTask = runtime;
+    [self.taskLock unlock];
+
+    dispatch_async(self.worker.queue, ^{
+        [runtime start];
+    });
+
+    [self emitLogLevel:SSHKitLogLevelInfo
+                 phase:@"tunnel"
+               message:@"SSH remote forward started."
+              metadata:@{@"remoteHost": remoteHost,
+                         @"boundPort": [NSString stringWithFormat:@"%d", boundPort]}];
+    return [[SSHKitPortForward alloc] initWithBoundHost:remoteHost boundPort:(uint16_t)boundPort closeBlock:^(SSHKitCompletion completion) {
+        [runtime closeWithCompletion:completion];
+    }];
+}
+
+#pragma clang diagnostic pop
 
 - (void)cancelCurrentTask {
     SSHCoreSessionState workerState = self.worker.state;

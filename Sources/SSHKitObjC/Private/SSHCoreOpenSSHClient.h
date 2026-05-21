@@ -45,6 +45,18 @@ NS_ASSUME_NONNULL_BEGIN
                                                targetPort:(uint16_t)remotePort
                                              closeHandler:(SSHCoreTunnelCloseHandler)closeHandler
                                                     error:(NSError **)error;
+- (nullable SSHKitPortForward *)startRemoteForwardFromHost:(NSString *)remoteHost
+                                                      port:(uint16_t)remotePort
+                                                    toHost:(NSString *)localHost
+                                                targetPort:(uint16_t)localPort
+                                              closeHandler:(SSHCoreTunnelCloseHandler)closeHandler
+                                                     error:(NSError **)error;
+- (nullable SSHKitPortForward *)startDynamicForwardFromHost:(NSString *)localHost
+                                                       port:(uint16_t)localPort
+                                                   username:(nullable NSString *)username
+                                                   password:(nullable NSString *)password
+                                               closeHandler:(SSHCoreTunnelCloseHandler)closeHandler
+                                                      error:(NSError **)error;
 - (void)cancelCurrentTask;
 - (void)cancelCurrentTaskAndWaitUntilExit;
 - (void)closeSession;

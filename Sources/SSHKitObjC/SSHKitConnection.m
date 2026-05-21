@@ -704,6 +704,70 @@
     }];
 }
 
+- (void)startRemoteForwardFromHost:(NSString *)remoteHost
+                               port:(uint16_t)remotePort
+                             toHost:(NSString *)localHost
+                         targetPort:(uint16_t)localPort
+                         completion:(SSHKitPortForwardCompletion)completion {
+    NSParameterAssert(remoteHost.length > 0);
+    NSParameterAssert(localHost.length > 0);
+    NSParameterAssert(localPort > 0);
+
+    [self.worker async:^{
+        if (self.worker.state != SSHCoreSessionStateReady) {
+            NSError *error = SSHKitMakeError(SSHKitErrorCodeInvalidState, @"SSH session is not connected.");
+            [self completePortForwardOnDefaultQueue:completion forward:nil error:error];
+            return;
+        }
+
+        NSError *error = nil;
+        [self.worker transitionToState:SSHCoreSessionStateRunningTunnel];
+        SSHKitPortForward *forward = [self.client startRemoteForwardFromHost:remoteHost port:remotePort toHost:localHost targetPort:localPort closeHandler:^{
+            if (self.worker.state == SSHCoreSessionStateRunningTunnel) {
+                [self.worker transitionToState:SSHCoreSessionStateReady];
+            }
+        } error:&error];
+        if (!forward) {
+            [self.worker transitionToState:SSHCoreSessionStateReady];
+            [self completePortForwardOnDefaultQueue:completion forward:nil error:error];
+            return;
+        }
+
+        [self completePortForwardOnDefaultQueue:completion forward:forward error:nil];
+    }];
+}
+
+- (void)startDynamicForwardFromHost:(NSString *)localHost
+                                port:(uint16_t)localPort
+                            username:(NSString *)username
+                            password:(NSString *)password
+                          completion:(SSHKitPortForwardCompletion)completion {
+    NSParameterAssert(localHost.length > 0);
+
+    [self.worker async:^{
+        if (self.worker.state != SSHCoreSessionStateReady) {
+            NSError *error = SSHKitMakeError(SSHKitErrorCodeInvalidState, @"SSH session is not connected.");
+            [self completePortForwardOnDefaultQueue:completion forward:nil error:error];
+            return;
+        }
+
+        NSError *error = nil;
+        [self.worker transitionToState:SSHCoreSessionStateRunningTunnel];
+        SSHKitPortForward *forward = [self.client startDynamicForwardFromHost:localHost port:localPort username:username password:password closeHandler:^{
+            if (self.worker.state == SSHCoreSessionStateRunningTunnel) {
+                [self.worker transitionToState:SSHCoreSessionStateReady];
+            }
+        } error:&error];
+        if (!forward) {
+            [self.worker transitionToState:SSHCoreSessionStateReady];
+            [self completePortForwardOnDefaultQueue:completion forward:nil error:error];
+            return;
+        }
+
+        [self completePortForwardOnDefaultQueue:completion forward:forward error:nil];
+    }];
+}
+
 - (void)disconnectWithCompletion:(SSHKitCompletion)completion {
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
         [self.client cancelCurrentTask];

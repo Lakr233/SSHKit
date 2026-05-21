@@ -28,6 +28,11 @@ The server should support:
 - PTY shell channels
 - SFTP subsystem
 - direct TCP forwarding
+- local, remote, and dynamic TCP forwarding
+- SOCKS5 dynamic forwarding to loopback targets on the fixture host
+- `nc` for remote-forward command verification
+
+`SSHKIT_LIVE_HOST` must point at an external fixture host. Live tests reject loopback and localhost values so they exercise a real SSH server outside the developer machine's local sshd.
 
 The smoke command used by the current live tests is:
 

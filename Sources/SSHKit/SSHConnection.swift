@@ -316,6 +316,104 @@ public final class SSHConnection: @unchecked Sendable {
         }
     }
 
+    public func startRemoteForward(
+        remoteHost: String = "127.0.0.1",
+        remotePort: UInt16 = 0,
+        localHost: String,
+        localPort: UInt16,
+        callbackQueue: DispatchQueue = .main,
+        completion: @escaping (Result<SSHPortForward, SSHKitError>) -> Void,
+    ) {
+        precondition(remoteHost.isEmpty == false, "Remote forward bind host must not be empty.")
+        precondition(localHost.isEmpty == false, "Remote forward target host must not be empty.")
+        precondition(localPort > 0, "Remote forward target port must be greater than zero.")
+
+        session.startRemoteForward(
+            fromHost: remoteHost,
+            port: remotePort,
+            toHost: localHost,
+            targetPort: localPort,
+        ) { forward, error in
+            Self.completePortForward(forward, error: error, callbackQueue: callbackQueue, completion: completion)
+        }
+    }
+
+    public func startDynamicForward(
+        localHost: String = "127.0.0.1",
+        localPort: UInt16 = 0,
+        username: String? = nil,
+        password: String? = nil,
+        callbackQueue: DispatchQueue = .main,
+        completion: @escaping (Result<SSHPortForward, SSHKitError>) -> Void,
+    ) {
+        precondition(localHost.isEmpty == false, "Dynamic forward bind host must not be empty.")
+
+        session.startDynamicForward(fromHost: localHost, port: localPort, username: username, password: password) { forward, error in
+            Self.completePortForward(forward, error: error, callbackQueue: callbackQueue, completion: completion)
+        }
+    }
+
+    public func startRemoteForward(
+        remoteHost: String = "127.0.0.1",
+        remotePort: UInt16 = 0,
+        localHost: String,
+        localPort: UInt16,
+    ) async throws -> SSHPortForward {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                startRemoteForward(remoteHost: remoteHost, remotePort: remotePort, localHost: localHost, localPort: localPort, callbackQueue: .global()) { result in
+                    continuation.resume(with: result)
+                }
+            }
+        } onCancel: {
+            close(callbackQueue: .global()) { _ in
+            }
+        }
+    }
+
+    public func startDynamicForward(
+        localHost: String = "127.0.0.1",
+        localPort: UInt16 = 0,
+        username: String? = nil,
+        password: String? = nil,
+    ) async throws -> SSHPortForward {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                startDynamicForward(localHost: localHost, localPort: localPort, username: username, password: password, callbackQueue: .global()) { result in
+                    continuation.resume(with: result)
+                }
+            }
+        } onCancel: {
+            close(callbackQueue: .global()) { _ in
+            }
+        }
+    }
+
+    private static func completePortForward(
+        _ forward: SSHKitObjC.SSHKitPortForward?,
+        error: Error?,
+        callbackQueue: DispatchQueue,
+        completion: @escaping (Result<SSHPortForward, SSHKitError>) -> Void,
+    ) {
+        if let error = error as NSError? {
+            callbackQueue.async {
+                completion(.failure(SSHKitError(error)))
+            }
+            return
+        }
+
+        guard let forward else {
+            callbackQueue.async {
+                completion(.failure(SSHKitError(code: SSHKitErrorCode.unavailable.rawValue, message: "SSH port forward started without a forward object.")))
+            }
+            return
+        }
+
+        callbackQueue.async {
+            completion(.success(SSHPortForward(forward: forward)))
+        }
+    }
+
     public func openShell(
         terminalType: String = "xterm-256color",
         columns: UInt16 = 80,

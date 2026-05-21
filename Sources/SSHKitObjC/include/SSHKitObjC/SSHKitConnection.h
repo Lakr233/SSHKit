@@ -228,6 +228,16 @@ typedef void (^SSHKitAuthenticationDiscoveryCompletion)(SSHKitAuthenticationDisc
                             toHost:(NSString *)remoteHost
                         targetPort:(uint16_t)remotePort
                         completion:(SSHKitPortForwardCompletion)completion;
+- (void)startRemoteForwardFromHost:(NSString *)remoteHost
+                               port:(uint16_t)remotePort
+                             toHost:(NSString *)localHost
+                         targetPort:(uint16_t)localPort
+                         completion:(SSHKitPortForwardCompletion)completion;
+- (void)startDynamicForwardFromHost:(NSString *)localHost
+                                port:(uint16_t)localPort
+                            username:(nullable NSString *)username
+                            password:(nullable NSString *)password
+                          completion:(SSHKitPortForwardCompletion)completion;
 - (void)disconnectWithCompletion:(SSHKitCompletion)completion;
 
 @end

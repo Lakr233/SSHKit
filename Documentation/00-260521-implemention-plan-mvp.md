@@ -327,7 +327,7 @@ Tasks:
 
 Acceptance:
 
-- connect succeeds against local OpenSSH in live tests
+- connect succeeds against the external OpenSSH fixture in live tests
 - connect failure returns typed error
 - cancellation during connect returns cancellation
 - socket fd closes once

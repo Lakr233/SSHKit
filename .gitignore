@@ -7,3 +7,4 @@ xcuserdata/
 .DS_Store
 repomix-output.xml
 Script/*.local.sh
+reference/

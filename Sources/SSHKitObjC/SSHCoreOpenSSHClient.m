@@ -870,10 +870,14 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
 
 - (instancetype)initWithChannel:(ssh_channel)channel
                     workerQueue:(dispatch_queue_t)workerQueue
+                    isCancelled:(BOOL (^)(void))isCancelled
                     closeHandler:(SSHCoreTunnelCloseHandler)closeHandler;
 - (void)readDataWithMaximumLength:(NSUInteger)maximumLength completion:(SSHKitTunnelReadCompletion)completion;
 - (void)writeData:(NSData *)data completion:(SSHKitCompletion)completion;
 - (void)closeWithCompletion:(SSHKitCompletion)completion;
+- (BOOL)isTunnelCancelled;
+- (NSError *)tunnelErrorWithCode:(SSHKitErrorCode)code fallback:(NSString *)fallback cancelled:(BOOL)cancelled;
+- (void)closeAfterTerminalTunnelFailure;
 - (void)invalidateOnWorkerQueue;
 
 @end
@@ -883,6 +887,7 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
 @property (nonatomic) ssh_channel channel;
 @property (nonatomic) dispatch_queue_t workerQueue;
 @property (nonatomic, copy) SSHCoreTunnelCloseHandler closeHandler;
+@property (nonatomic, copy) BOOL (^isCancelled)(void);
 @property (nonatomic) BOOL closed;
 @property (nonatomic) BOOL didCallCloseHandler;
 
@@ -892,6 +897,7 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
 
 - (instancetype)initWithChannel:(ssh_channel)channel
                     workerQueue:(dispatch_queue_t)workerQueue
+                    isCancelled:(BOOL (^)(void))isCancelled
                     closeHandler:(SSHCoreTunnelCloseHandler)closeHandler {
     NSParameterAssert(channel != NULL);
     NSParameterAssert(workerQueue != nil);
@@ -900,6 +906,7 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
     if (self) {
         _channel = channel;
         _workerQueue = workerQueue;
+        _isCancelled = [isCancelled copy];
         _closeHandler = [closeHandler copy];
     }
     return self;
@@ -916,17 +923,23 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
         NSMutableData *data = [NSMutableData dataWithLength:(NSUInteger)boundedLength];
         int byteCount = ssh_channel_read_timeout(self.channel, data.mutableBytes, boundedLength, 0, 10000);
         if (byteCount == SSH_AGAIN) {
-            completion(nil, SSHKitMakeError(SSHKitErrorCodeConnectionFailed, @"Timed out waiting for SSH tunnel channel data."));
+            BOOL cancelled = [self isTunnelCancelled];
+            if (cancelled) {
+                [self closeAfterTerminalTunnelFailure];
+            }
+            completion(nil, [self tunnelErrorWithCode:SSHKitErrorCodeConnectionFailed fallback:@"Timed out waiting for SSH tunnel channel data." cancelled:cancelled]);
             return;
         }
         if (byteCount == SSH_ERROR) {
-            completion(nil, SSHKitMakeError(SSHKitErrorCodeConnectionFailed, @"Unable to read SSH tunnel channel."));
+            BOOL cancelled = [self isTunnelCancelled];
+            [self closeAfterTerminalTunnelFailure];
+            completion(nil, [self tunnelErrorWithCode:SSHKitErrorCodeConnectionFailed fallback:@"Unable to read SSH tunnel channel." cancelled:cancelled]);
             return;
         }
         if (byteCount == 0) {
-            [self invalidateOnWorkerQueue];
-            [self callCloseHandlerIfNeeded];
-            completion(nil, SSHKitMakeError(SSHKitErrorCodeConnectionFailed, @"SSH tunnel channel reached EOF."));
+            BOOL cancelled = [self isTunnelCancelled];
+            [self closeAfterTerminalTunnelFailure];
+            completion(nil, [self tunnelErrorWithCode:SSHKitErrorCodeConnectionFailed fallback:@"SSH tunnel channel reached EOF." cancelled:cancelled]);
             return;
         }
 
@@ -948,11 +961,15 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
             uint32_t chunkLength = remaining > UINT32_MAX ? UINT32_MAX : (uint32_t)remaining;
             int written = ssh_channel_write(self.channel, bytes, chunkLength);
             if (written == SSH_ERROR) {
-                completion(SSHKitMakeError(SSHKitErrorCodeConnectionFailed, @"Unable to write SSH tunnel channel."));
+                BOOL cancelled = [self isTunnelCancelled];
+                [self closeAfterTerminalTunnelFailure];
+                completion([self tunnelErrorWithCode:SSHKitErrorCodeConnectionFailed fallback:@"Unable to write SSH tunnel channel." cancelled:cancelled]);
                 return;
             }
             if (written <= 0) {
-                completion(SSHKitMakeError(SSHKitErrorCodeConnectionFailed, @"SSH tunnel write made no progress."));
+                BOOL cancelled = [self isTunnelCancelled];
+                [self closeAfterTerminalTunnelFailure];
+                completion([self tunnelErrorWithCode:SSHKitErrorCodeConnectionFailed fallback:@"SSH tunnel write made no progress." cancelled:cancelled]);
                 return;
             }
             bytes += written;
@@ -963,12 +980,25 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
     });
 }
 
+- (BOOL)isTunnelCancelled {
+    return self.isCancelled ? self.isCancelled() : NO;
+}
+
+- (NSError *)tunnelErrorWithCode:(SSHKitErrorCode)code fallback:(NSString *)fallback cancelled:(BOOL)cancelled {
+    return cancelled ? SSHKitMakeError(SSHKitErrorCodeCancelled, @"SSH tunnel channel was cancelled.") : SSHKitMakeError(code, fallback);
+}
+
 - (void)closeWithCompletion:(SSHKitCompletion)completion {
     dispatch_async(self.workerQueue, ^{
         [self invalidateOnWorkerQueue];
         [self callCloseHandlerIfNeeded];
         completion(nil);
     });
+}
+
+- (void)closeAfterTerminalTunnelFailure {
+    [self invalidateOnWorkerQueue];
+    [self callCloseHandlerIfNeeded];
 }
 
 - (void)invalidateOnWorkerQueue {
@@ -2844,6 +2874,10 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
     __weak SSHCoreOpenSSHClient *weakSelf = self;
     SSHCoreLibSSHTunnelRuntime *runtime = [[SSHCoreLibSSHTunnelRuntime alloc] initWithChannel:channel
                                                                                   workerQueue:self.worker.queue
+                                                                                  isCancelled:^BOOL{
+        SSHCoreOpenSSHClient *strongSelf = weakSelf;
+        return strongSelf ? [strongSelf isTaskCancelled] : NO;
+    }
                                                                                  closeHandler:^{
         [weakSelf clearCurrentTask];
         closeHandler();

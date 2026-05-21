@@ -247,7 +247,9 @@ public final class SSHConnection: @unchecked Sendable {
             }
 
             callbackQueue.async {
-                completion(.success(SSHTunnelChannel(channel: channel)))
+                completion(.success(SSHTunnelChannel(channel: channel) { [weak self] in
+                    self?.close(callbackQueue: .global()) { _ in }
+                }))
             }
         }
     }

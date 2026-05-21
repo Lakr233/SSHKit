@@ -3,9 +3,11 @@ import SSHKitObjC
 
 public final class SSHTunnelChannel: @unchecked Sendable {
     private let channel: SSHKitObjC.SSHKitTunnelChannel
+    private let cancelConnection: @Sendable () -> Void
 
-    init(channel: SSHKitObjC.SSHKitTunnelChannel) {
+    init(channel: SSHKitObjC.SSHKitTunnelChannel, cancelConnection: @escaping @Sendable () -> Void) {
         self.channel = channel
+        self.cancelConnection = cancelConnection
     }
 
     public func read(
@@ -51,23 +53,30 @@ public final class SSHTunnelChannel: @unchecked Sendable {
     }
 
     public func read(maximumLength: Int = 32768) async throws -> Data {
-        try await withCheckedThrowingContinuation { continuation in
-            read(maximumLength: maximumLength, callbackQueue: .global()) { result in
-                continuation.resume(with: result)
+        let cancellation = CancellationMarker()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                read(maximumLength: maximumLength, callbackQueue: .global()) { result in
+                    continuation.resume(with: cancellation.result(for: result))
+                }
             }
+        } onCancel: {
+            cancellation.cancel()
+            cancelConnection()
         }
     }
 
     public func write(_ data: Data) async throws {
+        let cancellation = CancellationMarker()
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 write(data, callbackQueue: .global()) { result in
-                    continuation.resume(with: result)
+                    continuation.resume(with: cancellation.result(for: result))
                 }
             }
         } onCancel: {
-            close(callbackQueue: .global()) { _ in
-            }
+            cancellation.cancel()
+            cancelConnection()
         }
     }
 
@@ -94,5 +103,27 @@ public final class SSHTunnelChannel: @unchecked Sendable {
         callbackQueue.async {
             completion(.success(()))
         }
+    }
+}
+
+private final class CancellationMarker: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isCancelled = false
+
+    func cancel() {
+        lock.lock()
+        isCancelled = true
+        lock.unlock()
+    }
+
+    func result<Success>(for result: Result<Success, SSHKitError>) -> Result<Success, SSHKitError> {
+        lock.lock()
+        let cancelled = isCancelled
+        lock.unlock()
+
+        guard cancelled else {
+            return result
+        }
+        return .failure(SSHKitError(code: SSHKitErrorCode.cancelled.rawValue, message: "SSH tunnel channel was cancelled."))
     }
 }

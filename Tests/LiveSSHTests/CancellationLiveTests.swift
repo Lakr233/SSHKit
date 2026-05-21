@@ -8,7 +8,7 @@ final class CancellationLiveTests: LiveSSHTestCase {
         try requireLiveTestsEnabled()
 
         let fixture = try AlpineSSHFixture()
-        let blockingRoute = try BlockingTCPServer()
+        let blockingRoute = try FixtureTCPServer(acceptedConnectionBehavior: .holdOpen)
         defer {
             blockingRoute.close()
         }
@@ -80,9 +80,89 @@ final class CancellationLiveTests: LiveSSHTestCase {
         try? await removeRemoteFile(remotePath)
     }
 
+    func testForwardReadCancellationClosesFixtureConnection() async throws {
+        try requireLiveTestsEnabled()
+
+        let server = try FixtureTCPServer(acceptedConnectionBehavior: .holdOpen)
+        defer {
+            server.close()
+        }
+
+        let forwardingConnection = try await connectWithPrivateKey()
+        let remoteForward = try await forwardingConnection.startRemoteForward(localHost: "127.0.0.1", localPort: server.port)
+
+        let channelConnection = try await connectWithPrivateKey()
+        let channel = try await channelConnection.openDirectTCPChannel(host: "127.0.0.1", port: remoteForward.boundPort)
+        let readTask = Task {
+            _ = try await channel.read(maximumLength: 512)
+        }
+
+        try await Task.sleep(nanoseconds: 200_000_000)
+        readTask.cancel()
+        await assertTaskFailsWithCancellation(readTask)
+
+        await assertEventuallyRejectsCommandAfterCancellation(channelConnection)
+
+        try? await remoteForward.close()
+        try? await forwardingConnection.close()
+    }
+
+    func testForwardRemoteCloseReleasesFixtureConnection() async throws {
+        try requireLiveTestsEnabled()
+
+        let server = try FixtureTCPServer(acceptedConnectionBehavior: .closeImmediately)
+        defer {
+            server.close()
+        }
+
+        let forwardingConnection = try await connectWithPrivateKey()
+        let remoteForward = try await forwardingConnection.startRemoteForward(localHost: "127.0.0.1", localPort: server.port)
+
+        let channelConnection = try await connectWithPrivateKey()
+        let channel = try await channelConnection.openDirectTCPChannel(host: "127.0.0.1", port: remoteForward.boundPort)
+
+        do {
+            _ = try await channel.read(maximumLength: 512)
+            XCTFail("Forward read completed successfully after the target closed.")
+        } catch let error as SSHKitError {
+            XCTAssertEqual(error.code, SSHKitErrorCode.connectionFailed.rawValue)
+        }
+
+        let result = try await channelConnection.execute("printf after-forward-close")
+        XCTAssertEqual(String(data: result.standardOutput, encoding: .utf8), "after-forward-close")
+
+        try? await channelConnection.close()
+        try? await remoteForward.close()
+        try? await forwardingConnection.close()
+    }
+
     private func connectWithPrivateKey() async throws -> SSHConnection {
         let fixture = try AlpineSSHFixture()
         return try await SSHClient.connect(configuration: privateKeyConfiguration(fixture: fixture))
+    }
+
+    private func assertEventuallyRejectsCommandAfterCancellation(
+        _ connection: SSHConnection,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+    ) async {
+        let deadline = Date().addingTimeInterval(5)
+        var lastError: Error?
+
+        while Date() < deadline {
+            do {
+                _ = try await connection.execute("printf after-forward-cancel")
+                XCTFail("Connection accepted a command after forward read cancellation.", file: file, line: line)
+                return
+            } catch let error as SSHKitError where error.code == SSHKitErrorCode.invalidState.rawValue {
+                return
+            } catch {
+                lastError = error
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+        }
+
+        XCTFail("Connection did not report invalidState after forward read cancellation. Last error: \(String(describing: lastError))", file: file, line: line)
     }
 
     private func privateKeyConfiguration(
@@ -126,15 +206,21 @@ final class CancellationLiveTests: LiveSSHTestCase {
     }
 }
 
-private final class BlockingTCPServer: @unchecked Sendable {
+private final class FixtureTCPServer: @unchecked Sendable {
+    enum AcceptedConnectionBehavior {
+        case holdOpen
+        case closeImmediately
+    }
+
     let port: UInt16
 
-    private let queue = DispatchQueue(label: "SSHKitBlockingTCPServer")
+    private let acceptedConnectionBehavior: AcceptedConnectionBehavior
+    private let queue = DispatchQueue(label: "SSHKitFixtureTCPServer")
     private let lock = NSLock()
     private var listener: Int32
     private var acceptedSockets: [Int32] = []
 
-    init() throws {
+    init(acceptedConnectionBehavior: AcceptedConnectionBehavior) throws {
         let listenerSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)
         guard listenerSocket >= 0 else {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
@@ -181,6 +267,7 @@ private final class BlockingTCPServer: @unchecked Sendable {
 
         listener = listenerSocket
         port = UInt16(bigEndian: boundAddress.sin_port)
+        self.acceptedConnectionBehavior = acceptedConnectionBehavior
         startAccepting()
     }
 
@@ -223,12 +310,18 @@ private final class BlockingTCPServer: @unchecked Sendable {
                     return
                 }
 
-                self?.storeAcceptedSocket(client)
+                self?.handleAcceptedSocket(client)
             }
         }
     }
 
-    private func storeAcceptedSocket(_ socket: Int32) {
+    private func handleAcceptedSocket(_ socket: Int32) {
+        guard acceptedConnectionBehavior == .holdOpen else {
+            Darwin.shutdown(socket, SHUT_RDWR)
+            Darwin.close(socket)
+            return
+        }
+
         lock.lock()
         let shouldStore = listener >= 0
         if shouldStore {

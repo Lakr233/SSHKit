@@ -34,7 +34,7 @@ public struct SSHPortLatencyReport: Equatable, Sendable {
         route: SSHPortLatencyRoute,
         connectDuration: TimeInterval,
         sshServiceDuration: TimeInterval,
-        totalDuration: TimeInterval,
+        totalDuration: TimeInterval
     ) {
         self.host = host
         self.port = port
@@ -48,7 +48,7 @@ public struct SSHPortLatencyReport: Equatable, Sendable {
 public enum SSHPortLatencyProbe {
     public static func measure(
         configuration: SSHClientConfiguration,
-        serviceCommand: String = "true",
+        serviceCommand: String = "true"
     ) async throws -> SSHPortLatencyReport {
         precondition(serviceCommand.isEmpty == false, "Latency probe service command must not be empty.")
 
@@ -63,7 +63,7 @@ public enum SSHPortLatencyProbe {
             guard serviceResult.exitStatus == 0 else {
                 throw SSHKitError(
                     code: SSHKitErrorCode.commandFailed.rawValue,
-                    message: "SSH latency service command exited with status \(serviceResult.exitStatus).",
+                    message: "SSH latency service command exited with status \(serviceResult.exitStatus)."
                 )
             }
             try await connection.close()
@@ -74,7 +74,7 @@ public enum SSHPortLatencyProbe {
                 route: SSHPortLatencyRoute(proxyRoute: configuration.proxyRoute),
                 connectDuration: connected - start,
                 sshServiceDuration: serviceEnd - serviceStart,
-                totalDuration: finished - start,
+                totalDuration: finished - start
             )
         } catch {
             try? await connection.close()
@@ -86,7 +86,7 @@ public enum SSHPortLatencyProbe {
         configuration: SSHClientConfiguration,
         serviceCommand: String = "true",
         callbackQueue: DispatchQueue = .main,
-        completion: @escaping (Result<SSHPortLatencyReport, SSHKitError>) -> Void,
+        completion: @escaping (Result<SSHPortLatencyReport, SSHKitError>) -> Void
     ) {
         Task {
             do {

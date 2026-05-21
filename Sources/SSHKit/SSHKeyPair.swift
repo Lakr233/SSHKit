@@ -40,7 +40,7 @@ public enum SSHKeyGenerator {
     public static func generateOpenSSHKeyPair(
         type: SSHKeyGenerationType = .ed25519,
         comment: String? = nil,
-        passphrase: String? = nil,
+        passphrase: String? = nil
     ) throws -> SSHGeneratedKeyPair {
         let bridge = type.bridgeValue
         do {
@@ -48,12 +48,12 @@ public enum SSHKeyGenerator {
                 with: bridge.type,
                 bits: bridge.bits,
                 comment: comment,
-                passphrase: passphrase,
+                passphrase: passphrase
             )
             return SSHGeneratedKeyPair(
                 privateKeyOpenSSH: keyPair.privateKeyOpenSSH,
                 authorizedKey: keyPair.authorizedKey,
-                publicKeyType: keyPair.publicKeyType,
+                publicKeyType: keyPair.publicKeyType
             )
         } catch let error as NSError {
             throw SSHKitError(error)

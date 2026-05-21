@@ -83,7 +83,7 @@ extension SSHClientConfiguration {
                 authentication: jumpHost.authentication,
                 hostKeyPolicy: jumpHost.hostKeyPolicy,
                 timeout: jumpHost.timeout,
-                algorithmProfile: jumpHost.algorithmProfile,
+                algorithmProfile: jumpHost.algorithmProfile
             ).bridgeConfiguration
             configuration.proxyJump = jumpConfiguration
         }
@@ -138,7 +138,7 @@ extension SSHHostKeyDiscoveryConfiguration {
                 authentication: jumpHost.authentication,
                 hostKeyPolicy: jumpHost.hostKeyPolicy,
                 timeout: jumpHost.timeout,
-                algorithmProfile: jumpHost.algorithmProfile,
+                algorithmProfile: jumpHost.algorithmProfile
             ).bridgeConfiguration
             configuration.proxyJump = jumpConfiguration
         }

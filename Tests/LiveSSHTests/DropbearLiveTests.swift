@@ -14,7 +14,7 @@ final class DropbearLiveTests: LiveSSHTestCase {
             username: fixture.username,
             authentication: .password(fixture.password),
             hostKeyPolicy: .knownHostsFile(knownHostsPath),
-            timeout: 10,
+            timeout: 10
         )
         let connection = try await SSHClient.connect(configuration: configuration)
 
@@ -40,7 +40,7 @@ final class DropbearLiveTests: LiveSSHTestCase {
             username: fixture.username,
             authentication: .password("\(fixture.password)-wrong"),
             hostKeyPolicy: .knownHostsFile(makeKnownHostsFile(entry: fixture.knownHostsEntry)),
-            timeout: 10,
+            timeout: 10
         )
 
         do {
@@ -62,7 +62,7 @@ final class DropbearLiveTests: LiveSSHTestCase {
             username: fixture.username,
             authentication: .password(fixture.password),
             hostKeyPolicy: .knownHostsFile(makeKnownHostsFile(entry: mismatchedKnownHostsEntry(fixture.knownHostsEntry))),
-            timeout: 10,
+            timeout: 10
         )
 
         do {

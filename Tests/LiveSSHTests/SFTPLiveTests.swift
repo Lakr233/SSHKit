@@ -300,7 +300,7 @@ final class SFTPLiveTests: LiveSSHTestCase {
 
     private func waitForSFTPValue<Value>(
         _ description: String,
-        operation: (@escaping (Result<Value, SSHKitError>) -> Void) -> Void,
+        operation: (@escaping (Result<Value, SSHKitError>) -> Void) -> Void
     ) throws -> Value {
         let expectation = expectation(description: description)
         var result: Result<Value, SSHKitError>?
@@ -314,7 +314,7 @@ final class SFTPLiveTests: LiveSSHTestCase {
 
     private func waitForSFTPVoid(
         _ description: String,
-        operation: (@escaping (Result<Void, SSHKitError>) -> Void) -> Void,
+        operation: (@escaping (Result<Void, SSHKitError>) -> Void) -> Void
     ) throws {
         let expectation = expectation(description: description)
         var result: Result<Void, SSHKitError>?

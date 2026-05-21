@@ -9,7 +9,7 @@ final class LatencyLiveTests: LiveSSHTestCase {
         let configuration = try privateKeyConfiguration(fixture: fixture)
         let report = try await SSHPortLatencyProbe.measure(
             configuration: configuration,
-            serviceCommand: "printf 'latency-ok\\n'",
+            serviceCommand: "printf 'latency-ok\\n'"
         )
 
         XCTAssertEqual(report.host, fixture.host)
@@ -31,7 +31,7 @@ final class LatencyLiveTests: LiveSSHTestCase {
 
         let configuration = try privateKeyConfiguration(
             fixture: fixture,
-            proxyRoute: .socks5(SSHProxyEndpoint(host: "127.0.0.1", port: proxy.port)),
+            proxyRoute: .socks5(SSHProxyEndpoint(host: "127.0.0.1", port: proxy.port))
         )
         let report = try await SSHPortLatencyProbe.measure(configuration: configuration)
 
@@ -51,7 +51,7 @@ final class LatencyLiveTests: LiveSSHTestCase {
 
         let configuration = try privateKeyConfiguration(
             fixture: fixture,
-            proxyRoute: .httpConnect(SSHProxyEndpoint(host: "127.0.0.1", port: proxy.port)),
+            proxyRoute: .httpConnect(SSHProxyEndpoint(host: "127.0.0.1", port: proxy.port))
         )
         let report = try await SSHPortLatencyProbe.measure(configuration: configuration)
 
@@ -71,7 +71,7 @@ final class LatencyLiveTests: LiveSSHTestCase {
             port: fixture.port,
             username: fixture.username,
             authentication: .privateKeyFile(path: privateKeyPath),
-            hostKeyPolicy: .knownHostsFile(knownHostsPath),
+            hostKeyPolicy: .knownHostsFile(knownHostsPath)
         )
         let configuration = SSHClientConfiguration(
             host: "127.0.0.1",
@@ -80,7 +80,7 @@ final class LatencyLiveTests: LiveSSHTestCase {
             authentication: .privateKeyFile(path: privateKeyPath),
             hostKeyPolicy: .insecureAcceptAnyHostKey,
             timeout: 10,
-            proxyRoute: .proxyJump(jumpHost),
+            proxyRoute: .proxyJump(jumpHost)
         )
         let report = try await SSHPortLatencyProbe.measure(configuration: configuration)
 
@@ -91,7 +91,7 @@ final class LatencyLiveTests: LiveSSHTestCase {
 
     private func privateKeyConfiguration(
         fixture: AlpineSSHFixture,
-        proxyRoute: SSHProxyRoute? = nil,
+        proxyRoute: SSHProxyRoute? = nil
     ) throws -> SSHClientConfiguration {
         try SSHClientConfiguration(
             host: fixture.host,
@@ -100,7 +100,7 @@ final class LatencyLiveTests: LiveSSHTestCase {
             authentication: .privateKeyFile(path: makePrivateKeyFile(fixture: fixture)),
             hostKeyPolicy: .knownHostsFile(makeKnownHostsFile(fixture: fixture)),
             timeout: 10,
-            proxyRoute: proxyRoute,
+            proxyRoute: proxyRoute
         )
     }
 }

@@ -18,7 +18,7 @@ public struct SSHDiscoveredHostKey: Equatable, Sendable {
         self.init(
             host: result.host,
             port: result.port,
-            fingerprint: SSHHostKeyFingerprint(result.fingerprint),
+            fingerprint: SSHHostKeyFingerprint(result.fingerprint)
         )
     }
 }
@@ -37,7 +37,7 @@ public struct SSHHostKeyDiscoveryConfiguration: Sendable {
         timeout: TimeInterval = 30,
         logHandler: SSHLogHandler? = nil,
         proxyRoute: SSHProxyRoute? = nil,
-        algorithmProfile: SSHAlgorithmProfile = .modern,
+        algorithmProfile: SSHAlgorithmProfile = .modern
     ) {
         precondition(host.isEmpty == false, "Host key discovery host must not be empty.")
         precondition(port > 0, "Host key discovery port must be greater than zero.")

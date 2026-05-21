@@ -132,7 +132,7 @@ final class DirectTCPForwardLiveTests: LiveSSHTestCase {
             ai_addrlen: 0,
             ai_canonname: nil,
             ai_addr: nil,
-            ai_next: nil,
+            ai_next: nil
         )
         var addresses: UnsafeMutablePointer<addrinfo>?
         XCTAssertEqual(getaddrinfo(host, String(port), &hints, &addresses), 0)

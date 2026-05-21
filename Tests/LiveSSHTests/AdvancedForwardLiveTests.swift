@@ -20,7 +20,7 @@ final class AdvancedForwardLiveTests: LiveSSHTestCase {
                 targetHost: "127.0.0.1",
                 targetPort: fixture.remoteSSHDPort,
                 username: nil,
-                password: nil,
+                password: nil
             )
             XCTAssertTrue(banner.hasPrefix("SSH-2.0-"), "Expected SSH banner through SOCKS forward, received: \(banner)")
         }
@@ -52,7 +52,7 @@ final class AdvancedForwardLiveTests: LiveSSHTestCase {
                     socksHost: socksForward.boundHost,
                     socksPort: socksForward.boundPort,
                     targetHost: "127.0.0.1",
-                    targetPort: remoteForward.boundPort,
+                    targetPort: remoteForward.boundPort
                 )
                 XCTAssertTrue(httpResponse.hasPrefix("HTTP/1.1 200 OK\r\n"))
                 XCTAssertTrue(httpResponse.hasSuffix(body))
@@ -76,7 +76,7 @@ final class AdvancedForwardLiveTests: LiveSSHTestCase {
                 targetHost: "127.0.0.1",
                 targetPort: fixture.remoteSSHDPort,
                 username: "sshkit",
-                password: "fixture-secret",
+                password: "fixture-secret"
             )
             XCTAssertTrue(banner.hasPrefix("SSH-2.0-"), "Expected SSH banner through authenticated SOCKS forward, received: \(banner)")
         }
@@ -163,7 +163,7 @@ final class AdvancedForwardLiveTests: LiveSSHTestCase {
         let result = try execute("command -v nc >/dev/null 2>&1 && nc -h 2>&1 | grep -q -- '-w'", on: connection)
         try requireLiveFixtureCapability(
             result.exitStatus == 0,
-            "Remote forward live test requires netcat with -w timeout support on the fixture host.",
+            "Remote forward live test requires netcat with -w timeout support on the fixture host."
         )
     }
 
@@ -173,7 +173,7 @@ final class AdvancedForwardLiveTests: LiveSSHTestCase {
         targetHost: String,
         targetPort: UInt16,
         username: String?,
-        password: String?,
+        password: String?
     ) throws -> String {
         let fileDescriptor = try connectLocalTCP(host: socksHost, port: socksPort)
         defer {
@@ -198,7 +198,7 @@ final class AdvancedForwardLiveTests: LiveSSHTestCase {
         socksHost: String,
         socksPort: UInt16,
         targetHost: String,
-        targetPort: UInt16,
+        targetPort: UInt16
     ) throws -> String {
         let fileDescriptor = try connectLocalTCP(host: socksHost, port: socksPort)
         defer {
@@ -292,7 +292,7 @@ final class AdvancedForwardLiveTests: LiveSSHTestCase {
             ai_addrlen: 0,
             ai_canonname: nil,
             ai_addr: nil,
-            ai_next: nil,
+            ai_next: nil
         )
         var addresses: UnsafeMutablePointer<addrinfo>?
         XCTAssertEqual(getaddrinfo(host, String(port), &hints, &addresses), 0)

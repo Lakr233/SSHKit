@@ -20,12 +20,29 @@ struct SFTPBrowserView: View {
                 ContentUnavailableView(
                     "Not connected",
                     systemImage: "network.slash",
-                    description: Text("Connect first to browse SFTP.")
+                    description: Text("Connect first to browse SFTP."),
                 )
             } else if let model {
-                BrowserBody(model: model)
+                if model.isConnected {
+                    BrowserBody(model: model)
+                } else if let err = model.error {
+                    ContentUnavailableView {
+                        Label("SFTP Failed", systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(err)
+                    } actions: {
+                        Button("Retry") {
+                            Task {
+                                model.error = nil
+                                await model.open()
+                            }
+                        }
+                    }
+                } else {
+                    ProgressView("Opening SFTP…").progressViewStyle(.circular)
+                }
             } else {
-                ProgressView("Opening SFTP…")
+                ProgressView("Opening SFTP…").progressViewStyle(.circular)
             }
         }
         .navigationTitle("SFTP")
@@ -65,11 +82,16 @@ private struct BrowserBody: View {
             content
                 .padding(.bottom, controlBarHeight)
                 .overlay(controlBar.frame(maxHeight: .infinity, alignment: .bottom))
-                .opacity(model.isTransferring ? 0.25 : 1)
-                .disabled(model.isTransferring)
+                .opacity(isBusy ? 0.25 : 1)
+                .disabled(isBusy)
                 .toolbar { toolbarContent }
             if model.isTransferring {
                 progressOverlay
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(.thickMaterial)
+                    .zIndex(100)
+            } else if model.isLoading {
+                listingOverlay
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(.thickMaterial)
                     .zIndex(100)
@@ -80,7 +102,7 @@ private struct BrowserBody: View {
             "Error",
             isPresented: errorBinding,
             actions: { Button("OK") { model.error = nil } },
-            message: { Text(model.error ?? "") }
+            message: { Text(model.error ?? "") },
         )
         .sheet(isPresented: $showNewFolder) { newFolderSheet }
         .sheet(item: $renameTarget) { target in renameSheet(target: target) }
@@ -96,11 +118,11 @@ private struct BrowserBody: View {
             .fileExporter(
                 isPresented: Binding(
                     get: { exportSource != nil },
-                    set: { newValue in if !newValue { exportSource = nil } }
+                    set: { newValue in if !newValue { exportSource = nil } },
                 ),
                 document: exportSource.map { ExportDocument(url: $0) },
                 contentType: .data,
-                defaultFilename: exportSource?.lastPathComponent
+                defaultFilename: exportSource?.lastPathComponent,
             ) { _ in
                 exportSource = nil
             }
@@ -125,7 +147,7 @@ private struct BrowserBody: View {
             Table(
                 of: SFTPRemoteFile.self,
                 selection: $model.selection,
-                sortOrder: $model.sortOrder
+                sortOrder: $model.sortOrder,
             ) {
                 TableColumn("", value: \.name) { file in
                     Image(systemName: file.icon)
@@ -254,6 +276,23 @@ private struct BrowserBody: View {
     }
 
     // MARK: - Progress Overlay
+
+    private var isBusy: Bool {
+        model.isTransferring || model.isLoading
+    }
+
+    private var listingOverlay: some View {
+        VStack(spacing: 12) {
+            ProgressView().progressViewStyle(.circular)
+            Text(model.currentPath)
+                .font(.system(.footnote, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .frame(maxWidth: 280)
+        .padding(24)
+    }
 
     private var progressOverlay: some View {
         VStack(spacing: 12) {
@@ -473,7 +512,7 @@ private struct BrowserBody: View {
         let name = newFolderName.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return }
         showNewFolder = false
-        Task { await model.createNewFolder(name: name) }
+        Task { await model.createFolder(name: name) }
     }
 
     private func dropFiles(_ providers: [NSItemProvider]) -> Bool {
@@ -535,7 +574,7 @@ private struct BrowserBody: View {
     private var errorBinding: Binding<Bool> {
         Binding(
             get: { model.error != nil },
-            set: { newValue in if !newValue { model.error = nil } }
+            set: { newValue in if !newValue { model.error = nil } },
         )
     }
 }

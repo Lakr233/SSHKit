@@ -29,10 +29,10 @@ final class SSHTerminalSession {
         let resizeBridge = InMemoryResizeBridge(logRecorder: recorderRef)
         inMemory = InMemoryTerminalSession(
             write: { data in writeBridge.dispatch(data) },
-            resize: { viewport in resizeBridge.dispatch(viewport) }
+            resize: { viewport in resizeBridge.dispatch(viewport) },
         )
         viewState = TerminalViewState(
-            terminalConfiguration: TerminalConfiguration()
+            terminalConfiguration: TerminalConfiguration(),
         )
         viewState.configuration = TerminalSurfaceOptions(backend: .inMemory(inMemory))
         // Wire the bridges back to self once self is fully constructed.
@@ -78,7 +78,7 @@ final class SSHTerminalSession {
             let openedShell = try await opened.openShell(
                 terminalType: "xterm-256color",
                 columns: cols,
-                rows: rows
+                rows: rows,
             ) { [weak self] event in
                 Task { @MainActor [weak self] in self?.handleShellEvent(event) }
             }
@@ -110,9 +110,9 @@ final class SSHTerminalSession {
             recordError(
                 SSHKitError(
                     code: SSHKitErrorCode.unavailable.rawValue,
-                    message: String(describing: error)
+                    message: String(describing: error),
                 ),
-                phase: "start"
+                phase: "start",
             )
             state = .finished
         }
@@ -140,7 +140,7 @@ final class SSHTerminalSession {
             catch {
                 recordError(
                     SSHKitError(code: SSHKitErrorCode.unavailable.rawValue, message: String(describing: error)),
-                    phase: "shellClose"
+                    phase: "shellClose",
                 )
             }
         }
@@ -150,7 +150,7 @@ final class SSHTerminalSession {
             catch {
                 recordError(
                     SSHKitError(code: SSHKitErrorCode.unavailable.rawValue, message: String(describing: error)),
-                    phase: "connClose"
+                    phase: "connClose",
                 )
             }
         }
@@ -168,7 +168,7 @@ final class SSHTerminalSession {
                 await MainActor.run {
                     self?.recordError(
                         SSHKitError(code: SSHKitErrorCode.unavailable.rawValue, message: String(describing: error)),
-                        phase: "write"
+                        phase: "write",
                     )
                 }
             }
@@ -187,7 +187,7 @@ final class SSHTerminalSession {
                 await MainActor.run {
                     self?.recordError(
                         SSHKitError(code: SSHKitErrorCode.unavailable.rawValue, message: String(describing: error)),
-                        phase: "resize"
+                        phase: "resize",
                     )
                 }
             }
@@ -216,7 +216,7 @@ final class SSHTerminalSession {
                         await MainActor.run {
                             self?.recordError(
                                 SSHKitError(code: SSHKitErrorCode.unavailable.rawValue, message: String(describing: error)),
-                                phase: "closeAfterShellClosed"
+                                phase: "closeAfterShellClosed",
                             )
                         }
                     }
@@ -232,7 +232,7 @@ final class SSHTerminalSession {
             catch {
                 recordError(
                     SSHKitError(code: SSHKitErrorCode.unavailable.rawValue, message: String(describing: error)),
-                    phase: "startCleanupShell"
+                    phase: "startCleanupShell",
                 )
             }
         }
@@ -242,7 +242,7 @@ final class SSHTerminalSession {
             catch {
                 recordError(
                     SSHKitError(code: SSHKitErrorCode.unavailable.rawValue, message: String(describing: error)),
-                    phase: "startCleanupConn"
+                    phase: "startCleanupConn",
                 )
             }
         }

@@ -28,17 +28,40 @@ final class SFTPBrowserModel {
 
     // MARK: - Transfer progress
 
-    var transferName: String?
-    var transferCurrent: Int64 = 0
-    var transferTotal: Int64 = 0
+    private var activeTransfer: ActiveTransfer?
+
     var isTransferring: Bool {
-        transferName != nil
+        activeTransfer != nil
+    }
+
+    var transferName: String? {
+        activeTransfer?.name
+    }
+
+    var transferCurrent: Int64 {
+        activeTransfer?.completed ?? 0
+    }
+
+    var transferTotal: Int64 {
+        activeTransfer?.total ?? 0
+    }
+
+    private struct ActiveTransfer {
+        var name: String
+        var completed: Int64
+        var total: Int64
     }
 
     // MARK: - Navigation stacks
 
     private var pathHistory: [String] = []
     private var forwardHistory: [String] = []
+
+    /// Monotonic token guarding `refresh()` against stale results.
+    /// Navigation/refresh calls overlap because libssh I/O is awaited; without
+    /// this a slow listing of folder A could overwrite a newer listing of
+    /// folder B after the user navigated away.
+    private var refreshGeneration: UInt64 = 0
 
     init(configuration: SSHClientConfiguration) {
         self.configuration = configuration
@@ -61,15 +84,8 @@ final class SFTPBrowserModel {
             isConnected = true
             AppLog.info(.sftp, "SFTP session ready", metadata: endpointMetadata())
             await refresh()
-        } catch let error as SSHKitError {
-            AppLog.error(.sftp, "Failed to open SFTP", metadata: endpointMetadata().merging(error.logMetadata) { _, new in new })
-            self.error = error.message
-            isConnected = false
         } catch {
-            AppLog.error(.sftp, "Failed to open SFTP (non-SSHKit)", metadata: endpointMetadata().merging([
-                "errorMessage": error.localizedDescription,
-            ]) { _, new in new })
-            self.error = error.localizedDescription
+            self.error = AppLog.report(error, as: .sftp, message: "Failed to open SFTP", metadata: endpointMetadata())
             isConnected = false
         }
     }
@@ -130,39 +146,27 @@ final class SFTPBrowserModel {
 
     func navigate(to path: String) {
         AppLog.debug(.sftp, "Navigate", metadata: ["from": currentPath, "to": path])
-        pathHistory.append(currentPath)
-        forwardHistory.removeAll()
-        currentPath = normalize(path)
-        selection.removeAll()
-        Task { await refresh() }
+        moveTo(path.isEmpty ? "/" : path, recordingHistory: true, clearingForward: true)
     }
 
     func goBack() {
         guard let prev = pathHistory.popLast() else { return }
         forwardHistory.append(currentPath)
-        currentPath = prev
-        selection.removeAll()
-        AppLog.debug(.sftp, "Navigate back", metadata: ["currentPath": currentPath])
-        Task { await refresh() }
+        AppLog.debug(.sftp, "Navigate back", metadata: ["currentPath": prev])
+        moveTo(prev, recordingHistory: false, clearingForward: false)
     }
 
     func goForward() {
         guard let next = forwardHistory.popLast() else { return }
         pathHistory.append(currentPath)
-        currentPath = next
-        selection.removeAll()
-        AppLog.debug(.sftp, "Navigate forward", metadata: ["currentPath": currentPath])
-        Task { await refresh() }
+        AppLog.debug(.sftp, "Navigate forward", metadata: ["currentPath": next])
+        moveTo(next, recordingHistory: false, clearingForward: false)
     }
 
     func goToBreadcrumb(_ path: String) {
         if path == currentPath { return }
-        pathHistory.append(currentPath)
-        forwardHistory.removeAll()
-        currentPath = path
-        selection.removeAll()
-        AppLog.debug(.sftp, "Breadcrumb tap", metadata: ["currentPath": currentPath])
-        Task { await refresh() }
+        AppLog.debug(.sftp, "Breadcrumb tap", metadata: ["currentPath": path])
+        moveTo(path, recordingHistory: true, clearingForward: true)
     }
 
     var canGoBack: Bool {
@@ -179,56 +183,78 @@ final class SFTPBrowserModel {
         }
     }
 
+    /// Single source of truth for moving between directories. Centralizes the
+    /// history bookkeeping + selection clearing + listing kick-off that every
+    /// nav action used to repeat verbatim.
+    private func moveTo(_ path: String, recordingHistory: Bool, clearingForward: Bool) {
+        if recordingHistory {
+            pathHistory.append(currentPath)
+        }
+        if clearingForward {
+            forwardHistory.removeAll()
+        }
+        currentPath = path
+        selection.removeAll()
+        files = []
+        // Invalidate any in-flight refresh synchronously so a stale listDirectory
+        // resuming between this navigation and the new refresh's own increment
+        // cannot write its results under the new path.
+        refreshGeneration &+= 1
+        Task { await refresh() }
+    }
+
     // MARK: - Refresh
 
     func refresh() async {
         guard let sftp else { return }
+        refreshGeneration &+= 1
+        let generation = refreshGeneration
+        let pathSnapshot = currentPath
         isLoading = true
         error = nil
-        AppLog.debug(.sftp, "Listing directory", metadata: ["path": currentPath])
+        defer { if generation == refreshGeneration { isLoading = false } }
+
+        AppLog.debug(.sftp, "Listing directory", metadata: ["path": pathSnapshot])
         do {
-            let entries = try await sftp.listDirectory(currentPath)
-            var built: [SFTPRemoteFile] = []
-            for entry in entries {
-                guard let file = SFTPRemoteFile(dir: currentPath, entry: entry) else { continue }
-                if file.isSymbolicLink {
-                    let symPath = file.path
-                    let resolved = await resolveSymlinkTarget(at: symPath)
-                    built.append(SFTPRemoteFile(
-                        dir: file.dir,
-                        name: file.name,
-                        type: .symbolicLink,
-                        size: file.size,
-                        permissions: file.permissions,
-                        modified: file.modified,
-                        symlinkTargetsDirectory: resolved
-                    ))
-                } else {
-                    built.append(file)
-                }
+            let entries = try await sftp.listDirectory(pathSnapshot)
+            guard generation == refreshGeneration else {
+                AppLog.debug(.sftp, "Stale listing dropped", metadata: ["path": pathSnapshot])
+                return
             }
+            let built = await hydrate(entries, in: pathSnapshot, generation: generation)
+            guard generation == refreshGeneration else { return }
             files = built
             AppLog.info(.sftp, "Directory listed", metadata: [
-                "path": currentPath,
+                "path": pathSnapshot,
                 "count": String(built.count),
             ])
-        } catch let error as SSHKitError {
-            AppLog.error(.sftp, "listDirectory failed",
-                         metadata: ["path": currentPath].merging(error.logMetadata) { _, new in new })
-            self.error = error.message
-            files = []
         } catch {
-            AppLog.error(.sftp, "listDirectory failed (non-SSHKit)", metadata: [
-                "path": currentPath,
-                "errorMessage": error.localizedDescription,
+            guard generation == refreshGeneration else { return }
+            self.error = AppLog.report(error, as: .sftp, message: "listDirectory failed", metadata: [
+                "path": pathSnapshot,
             ])
-            self.error = error.localizedDescription
             files = []
         }
-        isLoading = false
     }
 
-    private func resolveSymlinkTarget(at path: String) async -> Bool {
+    /// Hydrate listing entries, following symlinks via `stat`. Bails out
+    /// mid-iteration if the user has navigated away (newer `refreshGeneration`).
+    private func hydrate(_ entries: [SFTPEntry], in dir: String, generation: UInt64) async -> [SFTPRemoteFile] {
+        var built: [SFTPRemoteFile] = []
+        for entry in entries {
+            guard let initial = SFTPRemoteFile(dir: dir, entry: entry) else { continue }
+            guard initial.isSymbolicLink else {
+                built.append(initial)
+                continue
+            }
+            let targetIsDirectory = await symlinkTargetIsDirectory(at: initial.path)
+            guard generation == refreshGeneration else { return built }
+            built.append(initial.withSymlinkTargetsDirectory(targetIsDirectory))
+        }
+        return built
+    }
+
+    private func symlinkTargetIsDirectory(at path: String) async -> Bool {
         guard let sftp else { return false }
         do {
             let attrs = try await sftp.stat(path)
@@ -255,17 +281,8 @@ final class SFTPBrowserModel {
                     try await sftp.removeFile(file.path)
                 }
                 AppLog.info(.sftp, "Deleted", metadata: ["path": file.path])
-            } catch let error as SSHKitError {
-                AppLog.error(.sftp, "Delete failed",
-                             metadata: ["path": file.path].merging(error.logMetadata) { _, new in new })
-                self.error = "Delete failed for \(file.name): \(error.message)"
-                return
             } catch {
-                AppLog.error(.sftp, "Delete failed (non-SSHKit)", metadata: [
-                    "path": file.path,
-                    "errorMessage": error.localizedDescription,
-                ])
-                self.error = "Delete failed for \(file.name): \(error.localizedDescription)"
+                self.error = "Delete failed for \(file.name): \(AppLog.report(error, as: .sftp, message: "Delete failed", metadata: ["path": file.path]))"
                 return
             }
         }
@@ -273,47 +290,28 @@ final class SFTPBrowserModel {
         await refresh()
     }
 
-    func createNewFolder(name: String) async {
+    func createFolder(name: String) async {
         guard let sftp else { return }
-        let separator = currentPath.hasSuffix("/") ? "" : "/"
-        let path = "\(currentPath)\(separator)\(name)"
+        let path = currentPath.joiningRemotePath(name)
         AppLog.info(.sftp, "Creating folder", metadata: ["path": path])
         do {
             try await sftp.createDirectory(path)
             AppLog.info(.sftp, "Folder created", metadata: ["path": path])
             await refresh()
-        } catch let error as SSHKitError {
-            AppLog.error(.sftp, "createDirectory failed",
-                         metadata: ["path": path].merging(error.logMetadata) { _, new in new })
-            self.error = "Create folder failed: \(error.message)"
         } catch {
-            AppLog.error(.sftp, "createDirectory failed (non-SSHKit)", metadata: [
-                "path": path,
-                "errorMessage": error.localizedDescription,
-            ])
-            self.error = "Create folder failed: \(error.localizedDescription)"
+            self.error = "Create folder failed: \(AppLog.report(error, as: .sftp, message: "createDirectory failed", metadata: ["path": path]))"
         }
     }
 
     func renameFile(_ file: SFTPRemoteFile, to newName: String) async {
         guard let sftp else { return }
-        let separator = file.dir.hasSuffix("/") ? "" : "/"
-        let newPath = "\(file.dir)\(separator)\(newName)"
+        let newPath = file.dir.joiningRemotePath(newName)
         AppLog.info(.sftp, "Renaming", metadata: ["from": file.path, "to": newPath])
         do {
             try await sftp.rename(file.path, to: newPath)
             await refresh()
-        } catch let error as SSHKitError {
-            AppLog.error(.sftp, "Rename failed",
-                         metadata: ["from": file.path, "to": newPath].merging(error.logMetadata) { _, new in new })
-            self.error = "Rename failed: \(error.message)"
         } catch {
-            AppLog.error(.sftp, "Rename failed (non-SSHKit)", metadata: [
-                "from": file.path,
-                "to": newPath,
-                "errorMessage": error.localizedDescription,
-            ])
-            self.error = "Rename failed: \(error.localizedDescription)"
+            self.error = "Rename failed: \(AppLog.report(error, as: .sftp, message: "Rename failed", metadata: ["from": file.path, "to": newPath]))"
         }
     }
 
@@ -330,50 +328,31 @@ final class SFTPBrowserModel {
             let scoped = SecurityScopedURL(url)
             defer { _ = scoped } // explicit keep-alive — security-scoped URL must outlive the upload
             let name = url.lastPathComponent
-            let separator = currentPath.hasSuffix("/") ? "" : "/"
-            let dest = "\(currentPath)\(separator)\(name)"
+            let remotePath = currentPath.joiningRemotePath(name)
+            let totalBytes = localFileSize(at: scoped.url)
 
-            let total: Int64 = (try? FileManager.default.attributesOfItem(atPath: scoped.url.path)[.size] as? NSNumber)?.int64Value ?? 0
-            transferName = name
-            transferTotal = total
-            transferCurrent = 0
+            beginTransfer(name: name, totalBytes: totalBytes)
             AppLog.info(.transfer, "Upload start", metadata: [
                 "localName": name,
-                "remotePath": dest,
-                "size": String(total),
+                "remotePath": remotePath,
+                "size": String(totalBytes),
             ])
             do {
                 let start = DispatchTime.now()
-                try await sftp.upload(localURL: scoped.url, to: dest) { [weak self] completed, totalBytes in
-                    Task { @MainActor in
-                        self?.transferCurrent = Int64(completed)
-                        self?.transferTotal = Int64(totalBytes)
-                    }
+                try await sftp.upload(localURL: scoped.url, to: remotePath) { [weak self] completed, total in
+                    Task { @MainActor in self?.updateTransferProgress(completed: completed, total: total) }
                 }
-                let ms = (DispatchTime.now().uptimeNanoseconds &- start.uptimeNanoseconds) / 1_000_000
                 AppLog.info(.transfer, "Upload complete", metadata: [
-                    "remotePath": dest,
-                    "size": String(total),
-                    "durationMs": String(ms),
+                    "remotePath": remotePath,
+                    "size": String(totalBytes),
+                    "durationMs": String(elapsedMilliseconds(since: start)),
                 ])
-            } catch let error as SSHKitError {
-                AppLog.error(.transfer, "Upload failed",
-                             metadata: ["remotePath": dest, "localName": name].merging(error.logMetadata) { _, new in new })
-                uploadError = "Upload failed for \"\(name)\": \(error.message)"
-                break
             } catch {
-                AppLog.error(.transfer, "Upload failed (non-SSHKit)", metadata: [
-                    "remotePath": dest,
-                    "localName": name,
-                    "errorMessage": error.localizedDescription,
-                ])
-                uploadError = "Upload failed for \"\(name)\": \(error.localizedDescription)"
+                uploadError = "Upload failed for \"\(name)\": \(AppLog.report(error, as: .transfer, message: "Upload failed", metadata: ["remotePath": remotePath, "localName": name]))"
                 break
             }
         }
-        transferName = nil
-        transferCurrent = 0
-        transferTotal = 0
+        endTransfer()
         await refresh()
         if let uploadError {
             error = uploadError
@@ -390,107 +369,67 @@ final class SFTPBrowserModel {
         ])
         for file in selected {
             if file.isDirectory {
-                await downloadDirectory(remotePath: file.path, name: file.name, to: directory)
+                await downloadDirectory(file, to: directory)
             } else {
-                await downloadFile(remotePath: file.path, name: file.name, size: file.size, to: directory)
+                await downloadFile(file, to: directory)
             }
             if error != nil { break }
         }
-        transferName = nil
-        transferCurrent = 0
-        transferTotal = 0
+        endTransfer()
     }
 
     /// Download a single file to a freshly allocated temp URL — for iOS
     /// where the destination is picked by `fileExporter` afterwards.
     func downloadToTemp(file: SFTPRemoteFile) async -> URL? {
         guard let sftp else { return nil }
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        do {
-            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        } catch {
-            self.error = "Failed to create temp dir: \(error.localizedDescription)"
-            return nil
-        }
-        let destURL = dir.appendingPathComponent(file.name)
-        transferName = file.name
-        transferTotal = Int64(file.size)
-        transferCurrent = 0
+        guard let tempDir = makeTempDirectory() else { return nil }
+        let destURL = tempDir.appendingPathComponent(file.name)
+
+        beginTransfer(name: file.name, totalBytes: file.size)
         AppLog.info(.transfer, "Download (temp) start", metadata: [
             "remotePath": file.path,
             "tempPath": destURL.path,
             "size": String(file.size),
         ])
+        defer { endTransfer() }
         do {
             let start = DispatchTime.now()
             try await sftp.download(remotePath: file.path, to: destURL) { [weak self] completed, total in
-                Task { @MainActor in
-                    self?.transferCurrent = Int64(completed)
-                    self?.transferTotal = Int64(total)
-                }
+                Task { @MainActor in self?.updateTransferProgress(completed: completed, total: total) }
             }
-            let ms = (DispatchTime.now().uptimeNanoseconds &- start.uptimeNanoseconds) / 1_000_000
             AppLog.info(.transfer, "Download (temp) complete", metadata: [
                 "remotePath": file.path,
-                "durationMs": String(ms),
+                "durationMs": String(elapsedMilliseconds(since: start)),
             ])
-            transferName = nil
-            transferCurrent = 0
-            transferTotal = 0
             return destURL
-        } catch let error as SSHKitError {
-            AppLog.error(.transfer, "Download (temp) failed",
-                         metadata: ["remotePath": file.path].merging(error.logMetadata) { _, new in new })
-            self.error = "Download failed: \(error.message)"
         } catch {
-            AppLog.error(.transfer, "Download (temp) failed (non-SSHKit)", metadata: [
-                "remotePath": file.path,
-                "errorMessage": error.localizedDescription,
-            ])
-            self.error = "Download failed: \(error.localizedDescription)"
+            self.error = "Download failed: \(AppLog.report(error, as: .transfer, message: "Download (temp) failed", metadata: ["remotePath": file.path]))"
+            return nil
         }
-        transferName = nil
-        transferCurrent = 0
-        transferTotal = 0
-        return nil
     }
 
-    private func downloadFile(remotePath: String, name: String, size: UInt64, to directory: URL) async {
+    private func downloadFile(_ file: SFTPRemoteFile, to directory: URL) async {
         guard let sftp else { return }
-        let dest = directory.appendingPathComponent(name)
-        transferName = name
-        transferTotal = Int64(size)
-        transferCurrent = 0
+        let dest = directory.appendingPathComponent(file.name)
+        beginTransfer(name: file.name, totalBytes: file.size)
         AppLog.info(.transfer, "Download file", metadata: [
-            "remotePath": remotePath,
+            "remotePath": file.path,
             "localPath": dest.path,
-            "size": String(size),
+            "size": String(file.size),
         ])
         do {
-            try await sftp.download(remotePath: remotePath, to: dest) { [weak self] completed, total in
-                Task { @MainActor in
-                    self?.transferCurrent = Int64(completed)
-                    self?.transferTotal = Int64(total)
-                }
+            try await sftp.download(remotePath: file.path, to: dest) { [weak self] completed, total in
+                Task { @MainActor in self?.updateTransferProgress(completed: completed, total: total) }
             }
-            AppLog.info(.transfer, "Download file complete", metadata: ["remotePath": remotePath])
-        } catch let error as SSHKitError {
-            AppLog.error(.transfer, "Download file failed",
-                         metadata: ["remotePath": remotePath].merging(error.logMetadata) { _, new in new })
-            self.error = "Download failed: \(error.message)"
+            AppLog.info(.transfer, "Download file complete", metadata: ["remotePath": file.path])
         } catch {
-            AppLog.error(.transfer, "Download file failed (non-SSHKit)", metadata: [
-                "remotePath": remotePath,
-                "errorMessage": error.localizedDescription,
-            ])
-            self.error = "Download failed: \(error.localizedDescription)"
+            self.error = "Download failed: \(AppLog.report(error, as: .transfer, message: "Download file failed", metadata: ["remotePath": file.path]))"
         }
     }
 
-    private func downloadDirectory(remotePath: String, name: String, to localParent: URL) async {
+    private func downloadDirectory(_ file: SFTPRemoteFile, to localParent: URL) async {
         guard let sftp else { return }
-        let localDir = localParent.appendingPathComponent(name)
+        let localDir = localParent.appendingPathComponent(file.name)
         do {
             try FileManager.default.createDirectory(at: localDir, withIntermediateDirectories: true)
         } catch {
@@ -498,25 +437,22 @@ final class SFTPBrowserModel {
             return
         }
         AppLog.info(.transfer, "Download directory", metadata: [
-            "remotePath": remotePath,
+            "remotePath": file.path,
             "localPath": localDir.path,
         ])
         let entries: [SFTPEntry]
         do {
-            entries = try await sftp.listDirectory(remotePath)
-        } catch let error as SSHKitError {
-            self.error = "List directory failed: \(error.message)"
-            return
+            entries = try await sftp.listDirectory(file.path)
         } catch {
-            self.error = "List directory failed: \(error.localizedDescription)"
+            self.error = "List directory failed: \(AppLog.report(error, as: .transfer, message: "listDirectory failed", metadata: ["remotePath": file.path]))"
             return
         }
-        let children = entries.compactMap { SFTPRemoteFile(dir: remotePath, entry: $0) }
+        let children = entries.compactMap { SFTPRemoteFile(dir: file.path, entry: $0) }
         for child in children {
             if child.isDirectory {
-                await downloadDirectory(remotePath: child.path, name: child.name, to: localDir)
+                await downloadDirectory(child, to: localDir)
             } else {
-                await downloadFile(remotePath: child.path, name: child.name, size: child.size, to: localDir)
+                await downloadFile(child, to: localDir)
             }
             if error != nil { return }
         }
@@ -524,9 +460,39 @@ final class SFTPBrowserModel {
 
     // MARK: - Helpers
 
-    private func normalize(_ path: String) -> String {
-        if path.isEmpty { return "/" }
-        return path
+    private func beginTransfer(name: String, totalBytes: UInt64) {
+        activeTransfer = ActiveTransfer(name: name, completed: 0, total: Int64(totalBytes))
+    }
+
+    private func updateTransferProgress(completed: UInt64, total: UInt64) {
+        guard activeTransfer != nil else { return }
+        activeTransfer?.completed = Int64(completed)
+        activeTransfer?.total = Int64(total)
+    }
+
+    private func endTransfer() {
+        activeTransfer = nil
+    }
+
+    private func localFileSize(at url: URL) -> UInt64 {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+        return (attributes?[.size] as? NSNumber)?.uint64Value ?? 0
+    }
+
+    private func makeTempDirectory() -> URL? {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            return dir
+        } catch {
+            self.error = "Failed to create temp dir: \(error.localizedDescription)"
+            return nil
+        }
+    }
+
+    private func elapsedMilliseconds(since start: DispatchTime) -> UInt64 {
+        (DispatchTime.now().uptimeNanoseconds &- start.uptimeNanoseconds) / 1_000_000
     }
 
     private func endpointMetadata() -> [String: String] {

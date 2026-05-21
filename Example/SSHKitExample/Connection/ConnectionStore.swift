@@ -57,7 +57,7 @@ final class ConnectionStore {
         host: String,
         port: UInt16,
         username: String,
-        authentication: SSHAuthentication
+        authentication: SSHAuthentication,
     ) async {
         let endpoint = endpointMetadata(host: host, port: port, username: username)
         AppLog.info(.connection, "Begin password connection flow", metadata: endpoint)
@@ -65,77 +65,70 @@ final class ConnectionStore {
         let discoveryConfig = SSHHostKeyDiscoveryConfiguration(
             host: host,
             port: port,
-            logHandler: AppLog.sshLogHandler
+            logHandler: AppLog.sshLogHandler,
         )
 
         do {
             let discovered = try await AppLog.span(.hostTrust, "discoverHostKey", metadata: endpoint) {
                 try await SSHClient.discoverHostKey(configuration: discoveryConfig)
             }
-            AppLog.info(.hostTrust, "Host key discovered", metadata: endpoint.merging([
+            AppLog.info(.hostTrust, "Host key discovered", metadata: endpoint + [
                 "fingerprint": discovered.fingerprint.rawValue,
-            ]) { _, new in new })
+            ])
 
             AppLog.debug(.hostTrust, "Loading trusted fingerprint", metadata: endpoint)
             let stored = try trustStore.fingerprint(host: host, port: port)
             if let stored {
-                try await continueWithStoredFingerprint(
+                try await verifyStoredFingerprintMatches(
                     stored,
-                    discovered: discovered.fingerprint,
+                    against: discovered.fingerprint,
                     host: host,
                     port: port,
                     username: username,
-                    authentication: authentication
+                    authentication: authentication,
                 )
                 return
             }
 
-            AppLog.info(.hostTrust, "Host key needs enrollment", metadata: endpoint.merging([
+            AppLog.info(.hostTrust, "Host key needs enrollment", metadata: endpoint + [
                 "fingerprint": discovered.fingerprint.rawValue,
-            ]) { _, new in new })
+            ])
             activeSheet = .enrollment(
                 PendingEnrollment(
                     host: host,
                     port: port,
                     username: username,
                     authentication: authentication,
-                    fingerprint: discovered.fingerprint
-                )
+                    fingerprint: discovered.fingerprint,
+                ),
             )
-        } catch let error as SSHKitError {
-            AppLog.error(.connection, "Password connection flow failed", metadata: endpoint.merging(error.logMetadata) { _, new in new })
-            lastError = error
+        } catch let sshError as SSHKitError {
+            AppLog.error(.connection, "Password connection flow failed", metadata: endpoint + sshError.logMetadata)
+            lastError = sshError
         } catch {
-            AppLog.error(.connection, "Password connection flow failed with unexpected error", metadata: endpoint.merging([
-                "errorMessage": String(describing: error),
-            ]) { _, new in new })
-            lastError = SSHKitError(
-                code: SSHKitErrorCode.unavailable.rawValue,
-                message: String(describing: error)
-            )
+            let message = AppLog.report(error, as: .connection, message: "Password connection flow failed", metadata: endpoint)
+            lastError = SSHKitError(code: SSHKitErrorCode.unavailable.rawValue, message: message)
         }
     }
 
     func approveEnrollment(_ pending: PendingEnrollment) async {
         let endpoint = endpointMetadata(host: pending.host, port: pending.port, username: pending.username)
-        AppLog.info(.hostTrust, "User approved host key enrollment", metadata: endpoint.merging([
+        AppLog.info(.hostTrust, "User approved host key enrollment", metadata: endpoint + [
             "fingerprint": pending.fingerprint.rawValue,
-        ]) { _, new in new })
+        ])
 
         do {
             try trustStore.saveFingerprint(
                 pending.fingerprint,
                 host: pending.host,
-                port: pending.port
+                port: pending.port,
             )
             AppLog.info(.hostTrust, "Trusted fingerprint saved", metadata: endpoint)
         } catch {
-            AppLog.error(.hostTrust, "Failed to save trusted fingerprint", metadata: endpoint.merging([
-                "errorMessage": error.localizedDescription,
-            ]) { _, new in new })
+            let message = AppLog.report(error, as: .hostTrust, message: "Failed to save trusted fingerprint", metadata: endpoint)
             lastError = SSHKitError(
                 code: SSHKitErrorCode.unavailable.rawValue,
-                message: "Failed to save trusted fingerprint: \(error.localizedDescription)"
+                message: "Failed to save trusted fingerprint: \(message)",
             )
             return
         }
@@ -145,20 +138,15 @@ final class ConnectionStore {
                 host: pending.host,
                 port: pending.port,
                 username: pending.username,
-                authentication: pending.authentication
+                authentication: pending.authentication,
             )
-        } catch let error as SSHKitError {
-            AppLog.error(.connection, "Password verification after enrollment failed", metadata: endpoint.merging(error.logMetadata) { _, new in new })
-            lastError = error
+        } catch let sshError as SSHKitError {
+            AppLog.error(.connection, "Password verification after enrollment failed", metadata: endpoint + sshError.logMetadata)
+            lastError = sshError
             activeSheet = .setup
         } catch {
-            AppLog.error(.connection, "Password verification after enrollment failed with unexpected error", metadata: endpoint.merging([
-                "errorMessage": String(describing: error),
-            ]) { _, new in new })
-            lastError = SSHKitError(
-                code: SSHKitErrorCode.unavailable.rawValue,
-                message: String(describing: error)
-            )
+            let message = AppLog.report(error, as: .connection, message: "Password verification after enrollment failed", metadata: endpoint)
+            lastError = SSHKitError(code: SSHKitErrorCode.unavailable.rawValue, message: message)
             activeSheet = .setup
         }
     }
@@ -183,37 +171,35 @@ final class ConnectionStore {
             try trustStore.removeFingerprint(host: host, port: port)
             AppLog.info(.hostTrust, "Trusted fingerprint removed", metadata: endpoint)
         } catch {
-            AppLog.error(.hostTrust, "Failed to remove trusted fingerprint", metadata: endpoint.merging([
-                "errorMessage": error.localizedDescription,
-            ]) { _, new in new })
+            let message = AppLog.report(error, as: .hostTrust, message: "Failed to remove trusted fingerprint", metadata: endpoint)
             lastError = SSHKitError(
                 code: SSHKitErrorCode.unavailable.rawValue,
-                message: "Failed to remove trusted fingerprint: \(error.localizedDescription)"
+                message: "Failed to remove trusted fingerprint: \(message)",
             )
         }
     }
 
-    private func continueWithStoredFingerprint(
+    private func verifyStoredFingerprintMatches(
         _ stored: SSHHostKeyFingerprint,
-        discovered: SSHHostKeyFingerprint,
+        against discovered: SSHHostKeyFingerprint,
         host: String,
         port: UInt16,
         username: String,
-        authentication: SSHAuthentication
+        authentication: SSHAuthentication,
     ) async throws {
         let endpoint = endpointMetadata(host: host, port: port, username: username)
         guard stored == discovered else {
-            AppLog.error(.hostTrust, "Trusted fingerprint mismatch", metadata: endpoint.merging([
+            AppLog.error(.hostTrust, "Trusted fingerprint mismatch", metadata: endpoint + [
                 "trustedFingerprint": stored.rawValue,
                 "serverFingerprint": discovered.rawValue,
-            ]) { _, new in new })
+            ])
             lastError = SSHKitError(
                 code: SSHKitErrorCode.hostKeyVerificationFailed.rawValue,
                 message: """
                 Host key for \(host):\(port) does not match the trusted fingerprint.
                 Trusted: \(stored.rawValue)
                 Server:  \(discovered.rawValue)
-                """
+                """,
             )
             return
         }
@@ -223,7 +209,7 @@ final class ConnectionStore {
             host: host,
             port: port,
             username: username,
-            authentication: authentication
+            authentication: authentication,
         )
     }
 
@@ -231,7 +217,7 @@ final class ConnectionStore {
         host: String,
         port: UInt16,
         username: String,
-        authentication: SSHAuthentication
+        authentication: SSHAuthentication,
     ) async throws {
         let endpoint = endpointMetadata(host: host, port: port, username: username)
         AppLog.info(.connection, "Finalizing password connection", metadata: endpoint)
@@ -239,7 +225,7 @@ final class ConnectionStore {
             host: host,
             port: port,
             username: username,
-            authentication: authentication
+            authentication: authentication,
         )
         self.configuration = configuration
         pool = ConnectionPool(configuration: configuration)
@@ -251,35 +237,35 @@ final class ConnectionStore {
         host: String,
         port: UInt16,
         username: String,
-        authentication: SSHAuthentication
+        authentication: SSHAuthentication,
     ) async throws -> SSHClientConfiguration {
-        let configuration = configuration(
+        let candidate = makeClientConfiguration(
             host: host,
             port: port,
             username: username,
-            authentication: authentication
+            authentication: authentication,
         )
         do {
-            try await verify(configuration: configuration)
-            return configuration
+            try await verify(candidate)
+            return candidate
         } catch let error as SSHKitError {
             throw Self.authenticationRejectedError(
                 host: host,
                 port: port,
                 username: username,
-                underlying: error
+                underlying: error,
             )
         }
     }
 
-    private func verify(configuration: SSHClientConfiguration) async throws {
+    private func verify(_ configuration: SSHClientConfiguration) async throws {
         let metadata = endpointMetadata(
             host: configuration.host,
             port: configuration.port,
-            username: configuration.username
-        ).merging([
+            username: configuration.username,
+        ) + [
             "authentication": Self.authenticationName(configuration.authentication),
-        ]) { _, new in new }
+        ]
 
         try await AppLog.span(.auth, "verifyPasswordCredentials", metadata: metadata) {
             let connection = try await SSHClient.connect(configuration: configuration)
@@ -306,22 +292,22 @@ final class ConnectionStore {
         host: String,
         port: UInt16,
         username: String,
-        underlying: SSHKitError
+        underlying: SSHKitError,
     ) -> SSHKitError {
         SSHKitError(
             code: underlying.code,
             message: """
             Password login was rejected for \(username)@\(host):\(port). Check the username, password, and server login policy.
             Detail: \(underlying.message)
-            """
+            """,
         )
     }
 
-    private func configuration(
+    private func makeClientConfiguration(
         host: String,
         port: UInt16,
         username: String,
-        authentication: SSHAuthentication
+        authentication: SSHAuthentication,
     ) -> SSHClientConfiguration {
         SSHClientConfiguration(
             host: host,
@@ -329,7 +315,7 @@ final class ConnectionStore {
             username: username,
             authentication: authentication,
             hostKeyPolicy: .trustStore(trustStore),
-            logHandler: AppLog.sshLogHandler
+            logHandler: AppLog.sshLogHandler,
         )
     }
 

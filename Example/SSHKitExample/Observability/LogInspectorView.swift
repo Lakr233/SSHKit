@@ -49,7 +49,7 @@ struct LogInspectorView: View {
     // MARK: - Controls
 
     private var controlBar: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 8) {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("Filter (text / metadata)", text: $filterText)
@@ -59,13 +59,15 @@ struct LogInspectorView: View {
                     .textInputAutocapitalization(.never)
                 #endif
                 Picker("Level", selection: $minLevel) {
-                    Text("debug").tag(SSHLogLevel.debug)
-                    Text("info").tag(SSHLogLevel.info)
-                    Text("warn").tag(SSHLogLevel.warning)
-                    Text("error").tag(SSHLogLevel.error)
+                    Text("Debug").tag(SSHLogLevel.debug)
+                    Text("Info").tag(SSHLogLevel.info)
+                    Text("Warn").tag(SSHLogLevel.warning)
+                    Text("Error").tag(SSHLogLevel.error)
                 }
                 .pickerStyle(.segmented)
-                .frame(maxWidth: 240)
+                .labelsHidden()
+                .frame(width: 240)
+                .fixedSize()
             }
             HStack(spacing: 4) {
                 categoryChip(nil)

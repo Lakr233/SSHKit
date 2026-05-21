@@ -11,29 +11,70 @@ struct SessionFuzzView: View {
     @State private var iterationCount: Int = 0
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Stepper("Workers: \(workers)", value: $workers, in: 1 ... 16)
-                    .frame(maxWidth: 220)
-                Spacer()
-                Text("Iterations: \(iterationCount)")
-                    .font(.callout.monospaced())
-                Button(isRunning ? "Stop" : "Start") {
-                    if isRunning { task?.cancel() } else { runFuzz() }
+        VStack(spacing: 0) {
+            controlBar
+            Divider()
+            transcriptArea
+        }
+        .navigationTitle("Session Fuzz")
+        #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+        #endif
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        if isRunning { task?.cancel() } else { runFuzz() }
+                    } label: {
+                        Label(isRunning ? "Stop" : "Start",
+                              systemImage: isRunning ? "stop.fill" : "play.fill")
+                    }
+                    .accessibilityIdentifier("SSHKitExample.Fuzz.Toggle")
+                    .disabled(!isRunning && store.pool == nil)
                 }
-                .accessibilityIdentifier("SSHKitExample.Fuzz.Toggle")
-                .disabled(store.pool == nil)
             }
-            ScrollView {
-                Text(transcript.isEmpty ? "—" : transcript)
+            .onDisappear { task?.cancel() }
+    }
+
+    private var controlBar: some View {
+        HStack(spacing: 16) {
+            Stepper(value: $workers, in: 1 ... 16) {
+                LabeledContent("Workers") {
+                    Text("\(workers)").font(.body.monospaced())
+                }
+            }
+            .fixedSize()
+            Spacer()
+            LabeledContent("Iterations") {
+                Text("\(iterationCount)").font(.body.monospaced())
+            }
+            .fixedSize()
+        }
+        .padding()
+    }
+
+    private var transcriptArea: some View {
+        ScrollView {
+            if transcript.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: isRunning ? "hourglass" : "dice")
+                        .font(.system(size: 28, weight: .regular))
+                        .foregroundStyle(.tertiary)
+                        .symbolEffect(.pulse, isActive: isRunning)
+                    Text(isRunning ? "Running…" : "Press Start to fuzz")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.vertical, 60)
+            } else {
+                Text(transcript)
                     .font(.system(.callout, design: .monospaced))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
+                    .padding()
             }
         }
-        .padding()
-        .navigationTitle("Session Fuzz")
-        .onDisappear { task?.cancel() }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func runFuzz() {
@@ -72,24 +113,17 @@ struct SessionFuzzView: View {
                                     iterationCount += 1
                                     let head = String(
                                         data: result.standardOutput.prefix(64),
-                                        encoding: .utf8
+                                        encoding: .utf8,
                                     ) ?? ""
                                     transcript = String(("[w\(worker) i\(currentIteration)] " + head + "\n" + transcript).prefix(8000))
                                 }
-                            } catch let e as SSHKitError {
-                                AppLog.error(.sessionFuzz, "Iteration failed",
-                                             metadata: ["worker": String(worker), "iter": String(currentIteration)].merging(e.logMetadata) { _, new in new })
-                                await MainActor.run {
-                                    transcript = String(("[w\(worker) i\(currentIteration) ERR] " + e.message + "\n" + transcript).prefix(8000))
-                                }
                             } catch {
-                                AppLog.error(.sessionFuzz, "Iteration failed (non-SSHKit)", metadata: [
+                                let message = AppLog.report(error, as: .sessionFuzz, message: "Iteration failed", metadata: [
                                     "worker": String(worker),
                                     "iter": String(currentIteration),
-                                    "errorMessage": error.localizedDescription,
                                 ])
                                 await MainActor.run {
-                                    transcript = String(("[w\(worker) i\(currentIteration) ERR] " + error.localizedDescription + "\n" + transcript).prefix(8000))
+                                    transcript = String(("[w\(worker) i\(currentIteration) ERR] " + message + "\n" + transcript).prefix(8000))
                                 }
                             }
                             try? await Task.sleep(nanoseconds: 100_000_000)

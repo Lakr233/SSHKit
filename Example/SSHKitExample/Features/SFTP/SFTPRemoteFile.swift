@@ -17,8 +17,7 @@ struct SFTPRemoteFile: Identifiable, Hashable {
     }
 
     var path: String {
-        let separator = dir.hasSuffix("/") ? "" : "/"
-        return "\(dir)\(separator)\(name)"
+        dir.joiningRemotePath(name)
     }
 
     var isDirectory: Bool {
@@ -81,6 +80,20 @@ struct SFTPRemoteFile: Identifiable, Hashable {
 }
 
 extension SFTPRemoteFile {
+    /// Return a copy with the symlink-target-is-directory flag overridden,
+    /// once the model has resolved the link target.
+    func withSymlinkTargetsDirectory(_ value: Bool) -> SFTPRemoteFile {
+        SFTPRemoteFile(
+            dir: dir,
+            name: name,
+            type: type,
+            size: size,
+            permissions: permissions,
+            modified: modified,
+            symlinkTargetsDirectory: value,
+        )
+    }
+
     /// Hydrate from an SFTPEntry. The symlink-target-is-directory flag is the
     /// caller's job (we don't follow links in the listing path itself).
     init?(dir: String, entry: SFTPEntry, symlinkTargetsDirectory: Bool = false) {

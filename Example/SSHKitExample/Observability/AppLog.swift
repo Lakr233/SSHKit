@@ -95,7 +95,7 @@ final class LogCenter: @unchecked Sendable {
         _ message: @autoclosure () -> String,
         metadata: [String: String] = [:],
         file: String = #fileID,
-        line: Int = #line
+        line: Int = #line,
     ) {
         let rendered = message()
         var enriched = metadata
@@ -106,7 +106,7 @@ final class LogCenter: @unchecked Sendable {
             level: level,
             phase: category.rawValue,
             message: rendered,
-            metadata: enriched
+            metadata: enriched,
         )
         recorder.record(event)
 
@@ -152,7 +152,7 @@ enum AppLog {
         _ message: @autoclosure () -> String,
         metadata: [String: String] = [:],
         file: String = #fileID,
-        line: Int = #line
+        line: Int = #line,
     ) {
         center.log(.debug, category, message(), metadata: metadata, file: file, line: line)
     }
@@ -162,7 +162,7 @@ enum AppLog {
         _ message: @autoclosure () -> String,
         metadata: [String: String] = [:],
         file: String = #fileID,
-        line: Int = #line
+        line: Int = #line,
     ) {
         center.log(.info, category, message(), metadata: metadata, file: file, line: line)
     }
@@ -172,7 +172,7 @@ enum AppLog {
         _ message: @autoclosure () -> String,
         metadata: [String: String] = [:],
         file: String = #fileID,
-        line: Int = #line
+        line: Int = #line,
     ) {
         center.log(.warning, category, message(), metadata: metadata, file: file, line: line)
     }
@@ -182,7 +182,7 @@ enum AppLog {
         _ message: @autoclosure () -> String,
         metadata: [String: String] = [:],
         file: String = #fileID,
-        line: Int = #line
+        line: Int = #line,
     ) {
         center.log(.error, category, message(), metadata: metadata, file: file, line: line)
     }
@@ -195,7 +195,7 @@ enum AppLog {
         metadata: [String: String] = [:],
         file: String = #fileID,
         line: Int = #line,
-        _ body: sending () async throws -> T
+        _ body: sending () async throws -> T,
     ) async rethrows -> sending T {
         let start = DispatchTime.now()
         info(category, "▶ \(name)", metadata: metadata, file: file, line: line)
@@ -226,5 +226,39 @@ extension SSHKitError {
     /// Standard metadata bag for error logs.
     var logMetadata: [String: String] {
         ["errorCode": String(code), "errorMessage": message]
+    }
+}
+
+extension AppLog {
+    /// Log a failure from a `catch` clause, distinguishing `SSHKitError` from
+    /// arbitrary errors, and return a user-facing message the caller can show
+    /// in its error state. Collapses the SSHKit-vs-non-SSHKit catch pair that
+    /// would otherwise repeat in every async function.
+    @discardableResult
+    static func report(
+        _ error: Error,
+        as category: AppLogCategory,
+        message: String,
+        metadata: [String: String] = [:],
+        file: String = #fileID,
+        line: Int = #line,
+    ) -> String {
+        if let sshError = error as? SSHKitError {
+            AppLog.error(category, message, metadata: metadata + sshError.logMetadata, file: file, line: line)
+            return sshError.message
+        }
+        AppLog.error(category, "\(message) (non-SSHKit)", metadata: metadata + [
+            "errorMessage": error.localizedDescription,
+        ], file: file, line: line)
+        return error.localizedDescription
+    }
+}
+
+extension [String: String] {
+    /// Right-biased merge so `extras` overwrite the receiver's values. Lets
+    /// log call sites read as `endpoint + ["fingerprint": …]` instead of the
+    /// long `merging` closure.
+    static func + (base: Self, extras: Self) -> Self {
+        base.merging(extras) { _, new in new }
     }
 }

@@ -10,36 +10,60 @@ struct LatencyView: View {
 
     var body: some View {
         Form {
-            Section {
-                Button {
-                    Task { await measure() }
-                } label: {
-                    if isMeasuring {
-                        ProgressView()
-                    } else {
-                        Label("Measure latency", systemImage: "gauge.with.dots.needle.50percent")
+            if report == nil, error == nil {
+                Section {
+                    VStack(spacing: 10) {
+                        Image(systemName: "gauge.with.dots.needle.50percent")
+                            .font(.system(size: 32, weight: .regular))
+                            .foregroundStyle(.tertiary)
+                        Text(isMeasuring ? "Measuring…" : "No measurement yet")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
                     }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 20)
+                    .listRowBackground(Color.clear)
                 }
-                .disabled(store.configuration == nil || isMeasuring)
-                .accessibilityIdentifier("SSHKitExample.Latency.Measure")
             }
             if let report {
                 Section("Latest report") {
-                    LabeledContent("Host") { Text("\(report.host):\(report.port)") }
-                    LabeledContent("Connect") { Text(format(report.connectDuration)) }
-                    LabeledContent("SSH service") { Text(format(report.sshServiceDuration)) }
-                    LabeledContent("Total") { Text(format(report.totalDuration)) }
+                    LabeledContent("Host") { Text("\(report.host):\(report.port)").monospaced() }
+                    LabeledContent("Connect") { Text(format(report.connectDuration)).monospaced() }
+                    LabeledContent("SSH service") { Text(format(report.sshServiceDuration)).monospaced() }
+                    LabeledContent("Total") { Text(format(report.totalDuration)).monospaced().bold() }
                 }
             }
             if let error {
                 Section("Error") {
-                    Text(error.message)
-                        .foregroundStyle(.red)
+                    Label {
+                        Text(error.message)
+                    } icon: {
+                        Image(systemName: "xmark.octagon.fill")
+                    }
+                    .foregroundStyle(.red)
                 }
             }
         }
         .formStyle(.grouped)
         .navigationTitle("Latency Probe")
+        #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+        #endif
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        Task { await measure() }
+                    } label: {
+                        if isMeasuring {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Label("Measure", systemImage: "gauge.with.dots.needle.50percent")
+                        }
+                    }
+                    .disabled(store.configuration == nil || isMeasuring)
+                    .accessibilityIdentifier("SSHKitExample.Latency.Measure")
+                }
+            }
     }
 
     private func format(_ interval: TimeInterval) -> String {
@@ -61,22 +85,17 @@ struct LatencyView: View {
                 try await SSHPortLatencyProbe.measure(configuration: config)
             }
             report = result
-            AppLog.info(.latency, "Latency report", metadata: meta.merging([
+            AppLog.info(.latency, "Latency report", metadata: meta + [
                 "connectMs": String(Int(result.connectDuration * 1000)),
                 "sshServiceMs": String(Int(result.sshServiceDuration * 1000)),
                 "totalMs": String(Int(result.totalDuration * 1000)),
-            ]) { _, new in new })
-        } catch let e as SSHKitError {
-            AppLog.error(.latency, "Latency probe failed", metadata: meta.merging(e.logMetadata) { _, new in new })
-            error = e
+            ])
+        } catch let sshError as SSHKitError {
+            AppLog.error(.latency, "Latency probe failed", metadata: meta + sshError.logMetadata)
+            error = sshError
         } catch {
-            AppLog.error(.latency, "Latency probe failed (non-SSHKit)", metadata: meta.merging([
-                "errorMessage": error.localizedDescription,
-            ]) { _, new in new })
-            self.error = SSHKitError(
-                code: SSHKitErrorCode.unavailable.rawValue,
-                message: error.localizedDescription
-            )
+            let message = AppLog.report(error, as: .latency, message: "Latency probe failed", metadata: meta)
+            self.error = SSHKitError(code: SSHKitErrorCode.unavailable.rawValue, message: message)
         }
     }
 }

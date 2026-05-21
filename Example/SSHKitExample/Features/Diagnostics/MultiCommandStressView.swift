@@ -11,30 +11,79 @@ struct MultiCommandStressView: View {
     @State private var task: Task<Void, Never>?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Stepper("Concurrent: \(concurrency)", value: $concurrency, in: 1 ... 32)
-                    .frame(maxWidth: 220)
-                TextField("command", text: $command)
-                    .textFieldStyle(.roundedBorder)
-                    .autocorrectionDisabled()
-                Button(isRunning ? "Cancel" : "Run") {
-                    if isRunning { task?.cancel() } else { runStress() }
+        VStack(spacing: 0) {
+            composer
+            Divider()
+            transcriptArea
+        }
+        .navigationTitle("Multi-Command Stress")
+        #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+        #endif
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        if isRunning { task?.cancel() } else { runStress() }
+                    } label: {
+                        Label(isRunning ? "Cancel" : "Run",
+                              systemImage: isRunning ? "stop.fill" : "play.fill")
+                    }
+                    .keyboardShortcut(.return, modifiers: [.command])
+                    .accessibilityIdentifier("SSHKitExample.MultiCmd.Run")
+                    .disabled(!isRunning && (store.pool == nil || command.trimmingCharacters(in: .whitespaces).isEmpty))
                 }
-                .keyboardShortcut(.return, modifiers: [.command])
-                .disabled(store.pool == nil)
-                .accessibilityIdentifier("SSHKitExample.MultiCmd.Run")
             }
-            ScrollView {
-                Text(transcript.isEmpty ? "—" : transcript)
+    }
+
+    private var composer: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            TextField("command", text: $command, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(.system(.body, design: .monospaced))
+                .lineLimit(1 ... 3)
+                .autocorrectionDisabled()
+            #if os(iOS)
+                .textInputAutocapitalization(.never)
+            #endif
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(.quaternary.opacity(0.5)),
+                )
+            Stepper(value: $concurrency, in: 1 ... 32) {
+                LabeledContent("Concurrent workers") {
+                    Text("\(concurrency)").font(.body.monospaced())
+                }
+            }
+            .disabled(isRunning)
+        }
+        .padding()
+    }
+
+    private var transcriptArea: some View {
+        ScrollView {
+            if transcript.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: isRunning ? "hourglass" : "rectangle.stack")
+                        .font(.system(size: 28, weight: .regular))
+                        .foregroundStyle(.tertiary)
+                        .symbolEffect(.pulse, isActive: isRunning)
+                    Text(isRunning ? "Running…" : "No output yet")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.vertical, 60)
+            } else {
+                Text(transcript)
                     .font(.system(.callout, design: .monospaced))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
+                    .padding()
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .padding()
-        .navigationTitle("Multi-Command Stress")
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func runStress() {
@@ -75,16 +124,9 @@ struct MultiCommandStressView: View {
                             ])
                             let out = String(data: result.standardOutput, encoding: .utf8) ?? "<bin>"
                             return "[#\(i) exit=\(result.exitStatus)]\n\(out)"
-                        } catch let e as SSHKitError {
-                            AppLog.error(.multiCommand, "Worker failed",
-                                         metadata: ["worker": String(i)].merging(e.logMetadata) { _, new in new })
-                            return "[#\(i) error] \(e.message)"
                         } catch {
-                            AppLog.error(.multiCommand, "Worker failed (non-SSHKit)", metadata: [
-                                "worker": String(i),
-                                "errorMessage": error.localizedDescription,
-                            ])
-                            return "[#\(i) error] \(error.localizedDescription)"
+                            let message = AppLog.report(error, as: .multiCommand, message: "Worker failed", metadata: ["worker": String(i)])
+                            return "[#\(i) error] \(message)"
                         }
                     }
                 }

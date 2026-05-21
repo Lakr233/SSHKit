@@ -4,12 +4,16 @@ import SwiftUI
 
 struct TerminalScreen: View {
     @Environment(ConnectionStore.self) private var store
+    @Environment(\.colorScheme) private var colorScheme
     @State private var session: SSHTerminalSession?
 
     var body: some View {
         Group {
             if let session {
-                TerminalSurfaceView(context: session.viewState)
+                FocusedTerminalSurfaceView(context: session.viewState)
+                    .onChange(of: colorScheme, initial: true) {
+                        session.viewState.adopt(colorScheme: colorScheme)
+                    }
                     .accessibilityIdentifier("SSHKitExample.Terminal.Surface")
                     .overlay(alignment: .topTrailing) {
                         if let err = session.lastError {
@@ -20,7 +24,7 @@ struct TerminalScreen: View {
                 ContentUnavailableView(
                     "Not connected",
                     systemImage: "network.slash",
-                    description: Text("Connect first to open a shell.")
+                    description: Text("Connect first to open a shell."),
                 )
             } else {
                 ProgressView("Opening shell…")

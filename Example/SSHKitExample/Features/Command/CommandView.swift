@@ -18,67 +18,169 @@ struct CommandView: View {
         }
     }
 
+    enum OutputStream: String, Hashable, CaseIterable, Identifiable {
+        case stdout, stderr
+        var id: String {
+            rawValue
+        }
+
+        var title: String {
+            rawValue
+        }
+
+        var systemImage: String {
+            switch self {
+            case .stdout: "text.alignleft"
+            case .stderr: "exclamationmark.triangle"
+            }
+        }
+    }
+
     @State private var commandText: String = "uname -a"
     @State private var mode: Mode = .collected
     @State private var stdoutText: String = ""
     @State private var stderrText: String = ""
     @State private var statusLine: String = ""
+    @State private var exitStatus: Int32?
+    @State private var hasError: Bool = false
     @State private var isRunning: Bool = false
     @State private var task: Task<Void, Never>?
+    @State private var selectedStream: OutputStream = .stdout
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                TextField("command", text: $commandText, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(1 ... 3)
-                    .autocorrectionDisabled()
-                    .accessibilityIdentifier("SSHKitExample.Command.Field")
-                Picker("Mode", selection: $mode) {
-                    ForEach(Mode.allCases) { mode in
-                        Text(mode.title).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 200)
-                .disabled(isRunning)
-                Button(isRunning ? "Cancel" : "Run") {
-                    if isRunning {
-                        task?.cancel()
-                    } else {
-                        runCommand()
-                    }
-                }
-                .keyboardShortcut(.return, modifiers: [.command])
-                .accessibilityIdentifier("SSHKitExample.Command.Run")
-                .disabled(store.pool == nil || commandText.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-            GroupBox("stdout") {
-                ScrollView {
-                    Text(stdoutText.isEmpty ? "—" : stdoutText)
-                        .font(.system(.callout, design: .monospaced))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            GroupBox("stderr") {
-                ScrollView {
-                    Text(stderrText.isEmpty ? "—" : stderrText)
-                        .font(.system(.callout, design: .monospaced))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                }
-                .frame(maxHeight: 140)
-            }
+        VStack(spacing: 0) {
+            composer
+            Divider()
+            outputArea
             if !statusLine.isEmpty {
-                Text(statusLine)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                Divider()
+                statusBar
             }
         }
-        .padding()
         .navigationTitle("Command")
+        #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+        #endif
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    runButton
+                }
+            }
+    }
+
+    private var composer: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            TextField("command", text: $commandText, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(.system(.body, design: .monospaced))
+                .lineLimit(1 ... 5)
+                .autocorrectionDisabled()
+            #if os(iOS)
+                .textInputAutocapitalization(.never)
+            #endif
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(.quaternary.opacity(0.5)),
+                )
+                .accessibilityIdentifier("SSHKitExample.Command.Field")
+
+            Picker("Mode", selection: $mode) {
+                ForEach(Mode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .disabled(isRunning)
+        }
+        .padding()
+    }
+
+    private var outputArea: some View {
+        VStack(spacing: 0) {
+            Picker("Output", selection: $selectedStream) {
+                ForEach(OutputStream.allCases) { stream in
+                    Label(stream.title, systemImage: stream.systemImage).tag(stream)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+            .padding(.top, 12)
+            .padding(.bottom, 8)
+
+            ScrollView {
+                let body = selectedStream == .stdout ? stdoutText : stderrText
+                if body.isEmpty {
+                    emptyOutput
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(.vertical, 40)
+                } else {
+                    Text(body)
+                        .font(.system(.callout, design: .monospaced))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                        .padding(.horizontal)
+                        .padding(.bottom, 12)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var emptyOutput: some View {
+        VStack(spacing: 8) {
+            Image(systemName: isRunning ? "hourglass" : selectedStream.systemImage)
+                .font(.system(size: 28, weight: .regular))
+                .foregroundStyle(.tertiary)
+                .symbolEffect(.pulse, isActive: isRunning)
+            Text(isRunning ? "Running…" : "No \(selectedStream.title) yet")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var statusBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: statusIcon)
+                .foregroundStyle(statusTint)
+            Text(statusLine)
+                .font(.footnote.monospaced())
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 10)
+        .background(.bar)
+    }
+
+    private var statusIcon: String {
+        if hasError { return "xmark.octagon.fill" }
+        if let exit = exitStatus { return exit == 0 ? "checkmark.circle.fill" : "exclamationmark.circle.fill" }
+        return "ellipsis.circle"
+    }
+
+    private var statusTint: Color {
+        if hasError { return .red }
+        if let exit = exitStatus { return exit == 0 ? .green : .orange }
+        return .secondary
+    }
+
+    private var runButton: some View {
+        Button {
+            if isRunning {
+                task?.cancel()
+            } else {
+                runCommand()
+            }
+        } label: {
+            Label(isRunning ? "Cancel" : "Run",
+                  systemImage: isRunning ? "stop.fill" : "play.fill")
+        }
+        .keyboardShortcut(.return, modifiers: [.command])
+        .accessibilityIdentifier("SSHKitExample.Command.Run")
+        .disabled(!isRunning && (store.pool == nil || commandText.trimmingCharacters(in: .whitespaces).isEmpty))
     }
 
     private func runCommand() {
@@ -96,6 +198,9 @@ struct CommandView: View {
         stdoutText = ""
         stderrText = ""
         statusLine = "Running…"
+        exitStatus = nil
+        hasError = false
+        selectedStream = .stdout
         isRunning = true
         task = Task {
             defer {
@@ -126,21 +231,20 @@ struct CommandView: View {
             }
             stdoutText = Self.decodeStrict(result.standardOutput, label: "stdout")
             stderrText = Self.decodeStrict(result.standardError, label: "stderr")
-            statusLine = "Exit \(result.exitStatus)" + (result.exitSignal.map { ", signal \($0)" } ?? "")
+            exitStatus = result.exitStatus
+            statusLine = Self.statusLine(exitStatus: result.exitStatus, exitSignal: result.exitSignal)
+            if !stderrText.isEmpty, stdoutText.isEmpty {
+                selectedStream = .stderr
+            }
             AppLog.info(.command, "Collected execution finished", metadata: [
                 "exitStatus": String(result.exitStatus),
                 "exitSignal": result.exitSignal ?? "",
                 "stdoutBytes": String(result.standardOutput.count),
                 "stderrBytes": String(result.standardError.count),
             ])
-        } catch let error as SSHKitError {
-            AppLog.error(.command, "Collected execution failed", metadata: error.logMetadata)
-            statusLine = "Error: \(error.message)"
         } catch {
-            AppLog.error(.command, "Collected execution failed (non-SSHKit)", metadata: [
-                "errorMessage": error.localizedDescription,
-            ])
-            statusLine = "Error: \(error.localizedDescription)"
+            hasError = true
+            statusLine = "Error: \(AppLog.report(error, as: .command, message: "Collected execution failed"))"
         }
     }
 
@@ -188,21 +292,27 @@ struct CommandView: View {
                                 if !errTail.residual.isEmpty {
                                     stderrText.append("\n<invalid UTF-8: \(errTail.residual.count) bytes>")
                                 }
-                                statusLine = "Exit \(status)" + (signal.map { ", signal \($0)" } ?? "")
+                                exitStatus = status
+                                statusLine = Self.statusLine(exitStatus: status, exitSignal: signal)
+                                if !stderrText.isEmpty, stdoutText.isEmpty {
+                                    selectedStream = .stderr
+                                }
                             }
                         }
                     }
                 }
             }
-        } catch let error as SSHKitError {
-            AppLog.error(.command, "Streamed command failed", metadata: error.logMetadata)
-            await MainActor.run { statusLine = "Error: \(error.message)" }
         } catch {
-            AppLog.error(.command, "Streamed command failed (non-SSHKit)", metadata: [
-                "errorMessage": error.localizedDescription,
-            ])
-            await MainActor.run { statusLine = "Error: \(error.localizedDescription)" }
+            let message = AppLog.report(error, as: .command, message: "Streamed command failed")
+            await MainActor.run {
+                hasError = true
+                statusLine = "Error: \(message)"
+            }
         }
+    }
+
+    private static func statusLine(exitStatus: Int32, exitSignal: String?) -> String {
+        "Exit \(exitStatus)" + (exitSignal.map { ", signal \($0)" } ?? "")
     }
 
     private static func decodeStrict(_ data: Data, label: String) -> String {

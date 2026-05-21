@@ -36,21 +36,43 @@ struct PortMapView: View {
                 }
                 .pickerStyle(.segmented)
             }
-            Section("Endpoints") {
-                LabeledContent("Local bind") {
-                    HStack {
-                        TextField("127.0.0.1", text: $localHost)
-                        TextField("0", text: $localPortString)
-                            .frame(width: 80)
-                    }
+            Section("Local bind") {
+                LabeledContent("Host") {
+                    TextField("127.0.0.1", text: $localHost)
+                        .multilineTextAlignment(.trailing)
+                        .textFieldStyle(.plain)
+                        .autocorrectionDisabled()
+                    #if os(iOS)
+                        .textInputAutocapitalization(.never)
+                    #endif
                 }
-                if mode != .dynamic {
-                    LabeledContent("Remote target") {
-                        HStack {
-                            TextField("127.0.0.1", text: $remoteHost)
-                            TextField("22", text: $remotePortString)
-                                .frame(width: 80)
-                        }
+                LabeledContent("Port") {
+                    TextField("0", text: $localPortString)
+                        .multilineTextAlignment(.trailing)
+                        .textFieldStyle(.plain)
+                    #if os(iOS)
+                        .keyboardType(.numberPad)
+                    #endif
+                }
+            }
+            if mode != .dynamic {
+                Section("Remote target") {
+                    LabeledContent("Host") {
+                        TextField("127.0.0.1", text: $remoteHost)
+                            .multilineTextAlignment(.trailing)
+                            .textFieldStyle(.plain)
+                            .autocorrectionDisabled()
+                        #if os(iOS)
+                            .textInputAutocapitalization(.never)
+                        #endif
+                    }
+                    LabeledContent("Port") {
+                        TextField("22", text: $remotePortString)
+                            .multilineTextAlignment(.trailing)
+                            .textFieldStyle(.plain)
+                        #if os(iOS)
+                            .keyboardType(.numberPad)
+                        #endif
                     }
                 }
             }
@@ -60,6 +82,7 @@ struct PortMapView: View {
                 } label: {
                     Label(activeForward == nil ? "Open forward" : "Close forward",
                           systemImage: activeForward == nil ? "arrow.right.arrow.left" : "stop.circle")
+                        .frame(maxWidth: .infinity)
                 }
                 .accessibilityIdentifier("SSHKitExample.PortMap.Toggle")
                 .disabled(store.pool == nil)
@@ -115,19 +138,19 @@ struct PortMapView: View {
                                 localHost: lHost,
                                 localPort: lPort,
                                 remoteHost: rHost,
-                                remotePort: rPort
+                                remotePort: rPort,
                             )
                         case .remote:
                             try await connection.startRemoteForward(
                                 remoteHost: lHost,
                                 remotePort: lPort,
                                 localHost: rHost,
-                                localPort: rPort
+                                localPort: rPort,
                             )
                         case .dynamic:
                             try await connection.startDynamicForward(
                                 localHost: lHost,
-                                localPort: lPort
+                                localPort: lPort,
                             )
                         }
                     }
@@ -136,32 +159,25 @@ struct PortMapView: View {
                             kind: kind,
                             forward: forward,
                             boundHost: forward.boundHost,
-                            boundPort: forward.boundPort
+                            boundPort: forward.boundPort,
                         )
                         status = "Forward opened. Tip: keep this screen alive while the tunnel is in use."
                     }
-                    AppLog.info(.portMap, "Forward bound", metadata: meta.merging([
+                    let boundMeta = meta + [
                         "boundHost": forward.boundHost,
                         "boundPort": String(forward.boundPort),
-                    ]) { _, new in new })
+                    ]
+                    AppLog.info(.portMap, "Forward bound", metadata: boundMeta)
                     // Stay inside the withConnection scope until the user closes.
                     while await !shouldClose() {
                         try await Task.sleep(nanoseconds: 250_000_000)
                     }
-                    AppLog.info(.portMap, "Closing forward", metadata: meta.merging([
-                        "boundHost": forward.boundHost,
-                        "boundPort": String(forward.boundPort),
-                    ]) { _, new in new })
+                    AppLog.info(.portMap, "Closing forward", metadata: boundMeta)
                     try? await forward.close()
                 }
-            } catch let error as SSHKitError {
-                AppLog.error(.portMap, "Forward failed", metadata: meta.merging(error.logMetadata) { _, new in new })
-                await MainActor.run { status = "Error: \(error.message)" }
             } catch {
-                AppLog.error(.portMap, "Forward failed (non-SSHKit)", metadata: meta.merging([
-                    "errorMessage": error.localizedDescription,
-                ]) { _, new in new })
-                await MainActor.run { status = "Error: \(error.localizedDescription)" }
+                let message = AppLog.report(error, as: .portMap, message: "Forward failed", metadata: meta)
+                await MainActor.run { status = "Error: \(message)" }
             }
             await MainActor.run {
                 activeForward = nil

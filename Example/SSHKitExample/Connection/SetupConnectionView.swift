@@ -66,7 +66,7 @@ struct SetupConnectionView: View {
             .alert(
                 "Connection error",
                 isPresented: bindingForError,
-                presenting: store.lastError
+                presenting: store.lastError,
             ) { _ in
                 Button("OK", role: .cancel) { store.lastError = nil }
             } message: { error in
@@ -81,7 +81,7 @@ struct SetupConnectionView: View {
     private var bindingForError: Binding<Bool> {
         Binding(
             get: { store.lastError != nil },
-            set: { newValue in if !newValue { store.lastError = nil } }
+            set: { newValue in if !newValue { store.lastError = nil } },
         )
     }
 
@@ -103,7 +103,7 @@ struct SetupConnectionView: View {
             host: host,
             port: port,
             username: username,
-            authentication: .password(password)
+            authentication: .password(password),
         )
     }
 }

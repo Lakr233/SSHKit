@@ -102,7 +102,7 @@ struct RootView: View {
         .alert(
             "Connection error",
             isPresented: bindingForError,
-            presenting: store.lastError
+            presenting: store.lastError,
         ) { _ in
             Button("OK", role: .cancel) { store.lastError = nil }
         } message: { error in
@@ -138,7 +138,7 @@ struct RootView: View {
             ContentUnavailableView(
                 "Not connected",
                 systemImage: "network.slash",
-                description: Text("Tap Connect to set up an SSH session.")
+                description: Text("Tap Connect to set up an SSH session."),
             )
             .toolbar { connectToolbar }
         } else if let item = selection {
@@ -149,7 +149,7 @@ struct RootView: View {
             ContentUnavailableView(
                 "Pick a feature",
                 systemImage: "sidebar.left",
-                description: Text("Choose a screen from the sidebar.")
+                description: Text("Choose a screen from the sidebar."),
             )
             .toolbar { connectToolbar }
         }
@@ -177,7 +177,7 @@ struct RootView: View {
             } label: {
                 Label(
                     store.configuration == nil ? "Connect" : "Reconnect",
-                    systemImage: "bolt.horizontal"
+                    systemImage: "bolt.horizontal",
                 )
             }
             .accessibilityIdentifier("SSHKitExample.Toolbar.Connect")
@@ -187,14 +187,14 @@ struct RootView: View {
     private var bindingForActiveSheet: Binding<ActiveSheet?> {
         Binding(
             get: { store.activeSheet },
-            set: { store.activeSheet = $0 }
+            set: { store.activeSheet = $0 },
         )
     }
 
     private var bindingForError: Binding<Bool> {
         Binding(
             get: { store.lastError != nil && store.activeSheet == nil },
-            set: { newValue in if !newValue { store.lastError = nil } }
+            set: { newValue in if !newValue { store.lastError = nil } },
         )
     }
 }

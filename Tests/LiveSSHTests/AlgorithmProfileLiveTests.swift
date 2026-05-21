@@ -43,7 +43,11 @@ final class AlgorithmProfileLiveTests: LiveSSHTestCase {
     private func connect(configuration: SSHClientConfiguration) throws -> SSHConnection {
         let expectation = expectation(description: "Connect to external legacy RSA SSH fixture")
         var connectionResult: Result<SSHConnection, SSHKitError>?
+        LiveSSHLog.event(
+            "connect start host=\(configuration.host) port=\(configuration.port) username=\(configuration.username) auth=\(configuration.authentication.liveDiagnosticName)",
+        )
         SSHClient.connect(configuration: configuration, callbackQueue: .main) { result in
+            LiveSSHLog.event("connect \(result.liveDiagnosticStatus)")
             connectionResult = result
             expectation.fulfill()
         }
@@ -67,6 +71,7 @@ private struct LegacyRSAFixture {
         username = try Self.requiredEnvironmentValue("SSHKIT_LEGACY_RSA_USERNAME")
         password = try Self.requiredEnvironmentValue("SSHKIT_LEGACY_RSA_PASSWORD")
         knownHostsEntry = try Self.requiredEnvironmentValue("SSHKIT_LEGACY_RSA_KNOWN_HOSTS")
+        LiveSSHLog.fixture("legacy-rsa", host: host, port: port, username: username)
     }
 
     private static func requiredEnvironmentValue(_ name: String) throws -> String {

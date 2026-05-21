@@ -65,12 +65,57 @@ for tool in /usr/bin/ssh-agent /usr/bin/ssh-add; do
   fi
 done
 
-test_output="$(mktemp -t sshkit-live-tests.XXXXXX)"
-trap 'rm -f "${test_output}"' EXIT
+log_live() {
+  printf '[live] %s %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*" >&2
+}
 
-swift test --filter LiveSSHTests 2>&1 | tee "${test_output}"
+test_output="$(mktemp -t sshkit-live-tests.XXXXXX)"
+heartbeat_pid=""
+
+stop_heartbeat() {
+  if [[ -n "${heartbeat_pid}" ]]; then
+    kill "${heartbeat_pid}" 2>/dev/null || true
+    wait "${heartbeat_pid}" 2>/dev/null || true
+    heartbeat_pid=""
+  fi
+}
+
+cleanup() {
+  stop_heartbeat
+  rm -f "${test_output}"
+}
+
+trap cleanup EXIT INT TERM
+
+(
+  started_at="$(date +%s)"
+  while true; do
+    sleep 15
+    now="$(date +%s)"
+    output_bytes="$(wc -c <"${test_output}" 2>/dev/null || printf '0')"
+    log_live "still running elapsed=$((now - started_at))s output_bytes=${output_bytes}"
+  done
+) &
+heartbeat_pid="$!"
+
+swift_test_command=(swift test --no-parallel --filter LiveSSHTests)
+log_live "starting external live SSH fixture suite command=${swift_test_command[*]}"
+
+set +e
+NSUnbufferedIO=YES "${swift_test_command[@]}" 2>&1 | tee "${test_output}"
+test_status="${PIPESTATUS[0]}"
+set -e
+
+stop_heartbeat
+
+if (( test_status != 0 )); then
+  log_live "external live SSH fixture suite failed status=${test_status}"
+  exit "${test_status}"
+fi
 
 if grep -E "Test Case '.*' skipped|tests skipped|Test \".*\" skipped" "${test_output}" >/dev/null; then
   printf 'Live SSH fixture run completed with skipped tests; all live tests must run against the external fixture hosts.\n' >&2
   exit 65
 fi
+
+log_live "external live SSH fixture suite completed with all live tests enabled"

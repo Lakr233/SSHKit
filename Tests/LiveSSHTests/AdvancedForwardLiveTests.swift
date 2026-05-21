@@ -18,7 +18,7 @@ final class AdvancedForwardLiveTests: LiveSSHTestCase {
                 socksHost: forward.boundHost,
                 socksPort: forward.boundPort,
                 targetHost: "127.0.0.1",
-                targetPort: fixture.port,
+                targetPort: fixture.remoteSSHDPort,
                 username: nil,
                 password: nil,
             )
@@ -74,7 +74,7 @@ final class AdvancedForwardLiveTests: LiveSSHTestCase {
                 socksHost: forward.boundHost,
                 socksPort: forward.boundPort,
                 targetHost: "127.0.0.1",
-                targetPort: fixture.port,
+                targetPort: fixture.remoteSSHDPort,
                 username: "sshkit",
                 password: "fixture-secret",
             )
@@ -110,7 +110,9 @@ final class AdvancedForwardLiveTests: LiveSSHTestCase {
     private func startDynamicForward(username: String? = nil, password: String? = nil, on connection: SSHConnection) throws -> SSHPortForward {
         let expectation = expectation(description: "Start dynamic SOCKS forward")
         var forwardResult: Result<SSHPortForward, SSHKitError>?
+        LiveSSHLog.event("dynamic-forward start localHost=127.0.0.1 localPort=0 auth=\(username == nil ? "none" : "username-password")")
         connection.startDynamicForward(localHost: "127.0.0.1", localPort: 0, username: username, password: password, callbackQueue: .main) { result in
+            LiveSSHLog.event("dynamic-forward \(result.liveDiagnosticStatus)")
             forwardResult = result
             expectation.fulfill()
         }
@@ -121,7 +123,9 @@ final class AdvancedForwardLiveTests: LiveSSHTestCase {
     private func startRemoteForward(localHost: String, localPort: UInt16, on connection: SSHConnection) throws -> SSHPortForward {
         let expectation = expectation(description: "Start remote SSH forward")
         var forwardResult: Result<SSHPortForward, SSHKitError>?
+        LiveSSHLog.event("remote-forward start remoteHost=127.0.0.1 remotePort=0 localHost=\(localHost) localPort=\(localPort)")
         connection.startRemoteForward(remoteHost: "127.0.0.1", remotePort: 0, localHost: localHost, localPort: localPort, callbackQueue: .main) { result in
+            LiveSSHLog.event("remote-forward \(result.liveDiagnosticStatus)")
             forwardResult = result
             expectation.fulfill()
         }
@@ -132,7 +136,9 @@ final class AdvancedForwardLiveTests: LiveSSHTestCase {
     private func close(_ forward: SSHPortForward) throws {
         let expectation = expectation(description: "Close SSH forward")
         var closeResult: Result<Void, SSHKitError>?
+        LiveSSHLog.event("forward close start")
         forward.close(callbackQueue: .main) { result in
+            LiveSSHLog.event("forward close \(result.liveDiagnosticStatus)")
             closeResult = result
             expectation.fulfill()
         }
@@ -143,7 +149,9 @@ final class AdvancedForwardLiveTests: LiveSSHTestCase {
     private func execute(_ command: String, on connection: SSHConnection) throws -> SSHCommandResult {
         let expectation = expectation(description: "Execute live SSH command")
         var commandResult: Result<SSHCommandResult, SSHKitError>?
+        LiveSSHLog.event("command start \(command)")
         connection.execute(command, callbackQueue: .main) { result in
+            LiveSSHLog.event("command \(result.liveDiagnosticStatus)")
             commandResult = result
             expectation.fulfill()
         }
@@ -178,6 +186,7 @@ final class AdvancedForwardLiveTests: LiveSSHTestCase {
             try negotiateSOCKSNoAuthentication(socket: fileDescriptor)
         }
 
+        LiveSSHLog.event("socks connect start target=\(targetHost):\(targetPort)")
         try connectSOCKS(socket: fileDescriptor, host: targetHost, port: targetPort)
         var buffer = [UInt8](repeating: 0, count: 512)
         let byteCount = Darwin.read(fileDescriptor, &buffer, buffer.count)
@@ -197,6 +206,7 @@ final class AdvancedForwardLiveTests: LiveSSHTestCase {
         }
 
         try negotiateSOCKSNoAuthentication(socket: fileDescriptor)
+        LiveSSHLog.event("socks connect start target=\(targetHost):\(targetPort)")
         try connectSOCKS(socket: fileDescriptor, host: targetHost, port: targetPort)
         try writeAll(Array("GET / HTTP/1.1\r\nHost: fixture\r\nConnection: close\r\n\r\n".utf8), to: fileDescriptor)
         return try readUntilEOF(from: fileDescriptor)
@@ -205,13 +215,17 @@ final class AdvancedForwardLiveTests: LiveSSHTestCase {
     private func negotiateSOCKSNoAuthentication(socket: Int32) throws {
         try writeAll([0x05, 0x01, 0x00], to: socket)
         let selection = try readExactly(2, from: socket)
-        XCTAssertEqual(selection, [0x05, 0x00])
+        guard selection == [0x05, 0x00] else {
+            throw LiveSSHFixtureError.protocolFailure("SOCKS no-auth negotiation failed reply=\(selection)")
+        }
     }
 
     private func authenticateSOCKS(username: String, password: String, socket: Int32) throws {
         try writeAll([0x05, 0x01, 0x02], to: socket)
         let selection = try readExactly(2, from: socket)
-        XCTAssertEqual(selection, [0x05, 0x02])
+        guard selection == [0x05, 0x02] else {
+            throw LiveSSHFixtureError.protocolFailure("SOCKS username-password negotiation failed reply=\(selection)")
+        }
 
         let usernameBytes = Array(username.utf8)
         let passwordBytes = Array(password.utf8)
@@ -227,7 +241,9 @@ final class AdvancedForwardLiveTests: LiveSSHTestCase {
         try writeAll(authRequest, to: socket)
 
         let authResponse = try readExactly(2, from: socket)
-        XCTAssertEqual(authResponse, [0x01, 0x00])
+        guard authResponse == [0x01, 0x00] else {
+            throw LiveSSHFixtureError.protocolFailure("SOCKS authentication failed reply=\(authResponse)")
+        }
     }
 
     private func connectSOCKS(socket: Int32, host: String, port: UInt16) throws {
@@ -241,9 +257,30 @@ final class AdvancedForwardLiveTests: LiveSSHTestCase {
         request.append(UInt8(port & 0x00FF))
         try writeAll(request, to: socket)
 
-        let reply = try readExactly(10, from: socket)
-        XCTAssertEqual(reply[0], 0x05)
-        XCTAssertEqual(reply[1], 0x00)
+        let header = try readExactly(4, from: socket)
+        guard header[0] == 0x05 else {
+            throw LiveSSHFixtureError.protocolFailure("SOCKS connect returned unsupported version=\(header[0])")
+        }
+        guard header[1] == 0x00 else {
+            throw LiveSSHFixtureError.protocolFailure("SOCKS connect failed code=\(header[1]) target=\(host):\(port)")
+        }
+        try readSOCKSBoundAddress(type: header[3], from: socket)
+        _ = try readExactly(2, from: socket)
+        LiveSSHLog.event("socks connect success target=\(host):\(port)")
+    }
+
+    private func readSOCKSBoundAddress(type: UInt8, from socket: Int32) throws {
+        switch type {
+        case 0x01:
+            _ = try readExactly(4, from: socket)
+        case 0x03:
+            let length = try readExactly(1, from: socket)[0]
+            _ = try readExactly(Int(length), from: socket)
+        case 0x04:
+            _ = try readExactly(16, from: socket)
+        default:
+            throw LiveSSHFixtureError.protocolFailure("SOCKS connect returned unsupported address type=\(type)")
+        }
     }
 
     private func connectLocalTCP(host: String, port: UInt16) throws -> Int32 {

@@ -8,7 +8,7 @@ final class DirectTCPForwardLiveTests: LiveSSHTestCase {
 
         try withPrivateKeyConnection { connection in
             let fixture = try AlpineSSHFixture()
-            let channel = try openDirectTCPChannel(host: "127.0.0.1", port: fixture.port, on: connection)
+            let channel = try openDirectTCPChannel(host: "127.0.0.1", port: fixture.remoteSSHDPort, on: connection)
             defer {
                 try? close(channel)
             }
@@ -23,7 +23,7 @@ final class DirectTCPForwardLiveTests: LiveSSHTestCase {
 
         try withPrivateKeyConnection { connection in
             let fixture = try AlpineSSHFixture()
-            let forward = try startLocalForward(remoteHost: "127.0.0.1", remotePort: fixture.port, on: connection)
+            let forward = try startLocalForward(remoteHost: "127.0.0.1", remotePort: fixture.remoteSSHDPort, on: connection)
             defer {
                 try? close(forward)
             }
@@ -38,7 +38,7 @@ final class DirectTCPForwardLiveTests: LiveSSHTestCase {
 
         try withPrivateKeyConnection { connection in
             let fixture = try AlpineSSHFixture()
-            let forward = try startLocalForward(remoteHost: "127.0.0.1", remotePort: fixture.port, on: connection)
+            let forward = try startLocalForward(remoteHost: "127.0.0.1", remotePort: fixture.remoteSSHDPort, on: connection)
 
             try close(forward)
             let result = try execute("printf forward-closed", on: connection)
@@ -49,7 +49,9 @@ final class DirectTCPForwardLiveTests: LiveSSHTestCase {
     private func openDirectTCPChannel(host: String, port: UInt16, on connection: SSHConnection) throws -> SSHTunnelChannel {
         let expectation = expectation(description: "Open direct TCP channel")
         var openResult: Result<SSHTunnelChannel, SSHKitError>?
+        LiveSSHLog.event("direct-tcp start host=\(host) port=\(port)")
         connection.openDirectTCPChannel(host: host, port: port, callbackQueue: .main) { result in
+            LiveSSHLog.event("direct-tcp \(result.liveDiagnosticStatus)")
             openResult = result
             expectation.fulfill()
         }
@@ -72,7 +74,9 @@ final class DirectTCPForwardLiveTests: LiveSSHTestCase {
     private func close(_ channel: SSHTunnelChannel) throws {
         let expectation = expectation(description: "Close direct TCP channel")
         var closeResult: Result<Void, SSHKitError>?
+        LiveSSHLog.event("direct-tcp close start")
         channel.close(callbackQueue: .main) { result in
+            LiveSSHLog.event("direct-tcp close \(result.liveDiagnosticStatus)")
             closeResult = result
             expectation.fulfill()
         }
@@ -83,7 +87,9 @@ final class DirectTCPForwardLiveTests: LiveSSHTestCase {
     private func startLocalForward(remoteHost: String, remotePort: UInt16, on connection: SSHConnection) throws -> SSHPortForward {
         let expectation = expectation(description: "Start local SSH forward")
         var forwardResult: Result<SSHPortForward, SSHKitError>?
+        LiveSSHLog.event("local-forward start remoteHost=\(remoteHost) remotePort=\(remotePort)")
         connection.startLocalForward(localHost: "127.0.0.1", localPort: 0, remoteHost: remoteHost, remotePort: remotePort, callbackQueue: .main) { result in
+            LiveSSHLog.event("local-forward \(result.liveDiagnosticStatus)")
             forwardResult = result
             expectation.fulfill()
         }
@@ -94,7 +100,9 @@ final class DirectTCPForwardLiveTests: LiveSSHTestCase {
     private func close(_ forward: SSHPortForward) throws {
         let expectation = expectation(description: "Close local SSH forward")
         var closeResult: Result<Void, SSHKitError>?
+        LiveSSHLog.event("local-forward close start")
         forward.close(callbackQueue: .main) { result in
+            LiveSSHLog.event("local-forward close \(result.liveDiagnosticStatus)")
             closeResult = result
             expectation.fulfill()
         }
@@ -105,7 +113,9 @@ final class DirectTCPForwardLiveTests: LiveSSHTestCase {
     private func execute(_ command: String, on connection: SSHConnection) throws -> SSHCommandResult {
         let expectation = expectation(description: "Execute command after local forward closes")
         var commandResult: Result<SSHCommandResult, SSHKitError>?
+        LiveSSHLog.event("command start \(command)")
         connection.execute(command, callbackQueue: .main) { result in
+            LiveSSHLog.event("command \(result.liveDiagnosticStatus)")
             commandResult = result
             expectation.fulfill()
         }

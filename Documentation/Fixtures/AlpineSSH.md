@@ -14,6 +14,7 @@ export SSHKIT_LIVE_USERNAME="root"
 export SSHKIT_LIVE_PASSWORD="<password>"
 export SSHKIT_LIVE_KNOWN_HOSTS="<known-hosts-entry>"
 export SSHKIT_LIVE_PRIVATE_KEY="<private-key-pem>"
+export SSHKIT_LIVE_REMOTE_SSHD_PORT="22"
 export SSHKIT_LEGACY_RSA_HOST="legacy-rsa.example.com"
 export SSHKIT_LEGACY_RSA_PORT="22"
 export SSHKIT_LEGACY_RSA_USERNAME="root"
@@ -26,7 +27,27 @@ export SSHKIT_DROPBEAR_PASSWORD="<password>"
 export SSHKIT_DROPBEAR_KNOWN_HOSTS="<known-hosts-entry>"
 ```
 
-Each known-hosts value should contain one complete OpenSSH known-hosts line. `SSHKIT_LIVE_PRIVATE_KEY` should contain a private key accepted by the Alpine fixture user. The legacy RSA fixture uses `SSHAlgorithmProfile.legacyRSA`, password authentication, known-host verification, and a real exec channel. The Dropbear fixture uses password authentication, known-host verification, and a real exec channel.
+Each known-hosts value should contain one complete OpenSSH known-hosts line. `SSHKIT_LIVE_PRIVATE_KEY` should contain a private key accepted by the Alpine fixture user. `SSHKIT_LIVE_REMOTE_SSHD_PORT` is optional and defaults to `22`; it is the SSH port visible from inside the fixture host for direct TCP, local forward, and dynamic SOCKS tests. The legacy RSA fixture uses `SSHAlgorithmProfile.legacyRSA`, password authentication, known-host verification, and a real exec channel. The Dropbear fixture uses password authentication, known-host verification, and a real exec channel.
+
+## Current Alpine Container Topology
+
+The current shared Alpine fixture runs OpenSSH in a Docker container and publishes the container's port `22` as host port `7422`:
+
+```yaml
+services:
+  ssh:
+    build: .
+    container_name: sshkit-alpine-fixture
+    restart: unless-stopped
+    ports:
+      - "7422:22"
+    env_file:
+      - .env
+    volumes:
+      - ./authorized_keys:/fixture/authorized_keys:ro
+```
+
+For that topology, set `SSHKIT_LIVE_PORT=7422` for the client connection from the developer machine, and keep `SSHKIT_LIVE_REMOTE_SSHD_PORT=22` for fixture-internal loopback targets such as `127.0.0.1:22`. The fixture `.env` file owns the root password and stays outside the repository.
 
 ## Fixture Requirements
 

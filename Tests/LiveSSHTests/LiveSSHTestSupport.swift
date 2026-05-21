@@ -2,7 +2,37 @@ import Foundation
 import SSHKit
 import XCTest
 
+enum LiveSSHLog {
+    private static let lock = NSLock()
+
+    static func event(_ message: String) {
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let line = "[live] \(timestamp) \(message)\n"
+        let data = Data(line.utf8)
+
+        lock.lock()
+        defer { lock.unlock() }
+        FileHandle.standardError.write(data)
+    }
+
+    static func fixture(_ name: String, host: String, port: UInt16, username: String) {
+        event("fixture=\(name) host=\(host) port=\(port) username=\(username)")
+    }
+}
+
 class LiveSSHTestCase: XCTestCase {
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        LiveSSHLog.event("START \(name)")
+    }
+
+    override func tearDownWithError() throws {
+        defer {
+            LiveSSHLog.event("END \(name)")
+        }
+        try super.tearDownWithError()
+    }
+
     func requireLiveTestsEnabled() throws {
         guard ProcessInfo.processInfo.environment["SSHKIT_RUN_LIVE_TESTS"] == "1" else {
             throw XCTSkip("Set SSHKIT_RUN_LIVE_TESTS=1 to run Alpine SSH live fixture tests.")
@@ -35,7 +65,11 @@ class LiveSSHTestCase: XCTestCase {
         let expectation = expectation(description: "Connect to Alpine SSH fixture")
         var connectionResult: Result<SSHConnection, SSHKitError>?
 
+        LiveSSHLog.event(
+            "connect start host=\(fixture.host) port=\(fixture.port) username=\(fixture.username) auth=\(authentication.liveDiagnosticName)",
+        )
         SSHClient.connect(configuration: configuration, callbackQueue: .main) { result in
+            LiveSSHLog.event("connect \(result.liveDiagnosticStatus)")
             connectionResult = result
             expectation.fulfill()
         }
@@ -82,7 +116,9 @@ class LiveSSHTestCase: XCTestCase {
         let expectation = expectation(description: "Execute Alpine SSH smoke command")
         var commandResult: Result<SSHCommandResult, SSHKitError>?
 
+        LiveSSHLog.event("command start \(command)")
         connection.execute(command, callbackQueue: .main) { result in
+            LiveSSHLog.event("command \(result.liveDiagnosticStatus)")
             commandResult = result
             expectation.fulfill()
         }
@@ -103,7 +139,9 @@ class LiveSSHTestCase: XCTestCase {
 
         let expectation = expectation(description: "Discover Alpine SSH authentication methods")
         var discoveryResult: Result<SSHAuthenticationDiscoveryResult, SSHKitError>?
+        LiveSSHLog.event("auth-discovery start host=\(fixture.host) port=\(fixture.port) username=\(fixture.username)")
         SSHClient.discoverAuthenticationMethods(configuration: configuration, callbackQueue: .main) { result in
+            LiveSSHLog.event("auth-discovery \(result.liveDiagnosticStatus)")
             discoveryResult = result
             expectation.fulfill()
         }
@@ -118,15 +156,18 @@ class LiveSSHTestCase: XCTestCase {
         let eventCapture = CommandEventCapture()
         var openResult: Result<SSHShell, SSHKitError>?
 
+        LiveSSHLog.event("shell open start terminal=xterm-256color columns=100 rows=40")
         connection.openShell(terminalType: "xterm-256color", columns: 100, rows: 40, callbackQueue: .main) { event in
             switch event {
             case let .standardOutput(data), let .standardError(data):
                 eventCapture.appendStandardOutput(data)
             case let .closed(status):
+                LiveSSHLog.event("shell closed status=\(status)")
                 eventCapture.setExitStatus(status)
                 closedExpectation.fulfill()
             }
         } completion: { result in
+            LiveSSHLog.event("shell open \(result.liveDiagnosticStatus)")
             openResult = result
             openExpectation.fulfill()
         }
@@ -158,6 +199,7 @@ class LiveSSHTestCase: XCTestCase {
         let eventCapture = CommandEventCapture()
         var openResult: Result<SSHCommand, SSHKitError>?
 
+        LiveSSHLog.event("stream command open start cat")
         connection.openCommand("cat && printf 'err-line\\n' >&2", callbackQueue: .main) { event in
             switch event {
             case let .standardOutput(data):
@@ -165,11 +207,13 @@ class LiveSSHTestCase: XCTestCase {
             case let .standardError(data):
                 eventCapture.appendStandardError(data)
             case let .closed(status, exitSignal: exitSignal):
+                LiveSSHLog.event("stream command closed status=\(status) signal=\(exitSignal ?? "none")")
                 eventCapture.setExitStatus(status)
                 eventCapture.setExitSignal(exitSignal)
                 closedExpectation.fulfill()
             }
         } completion: { result in
+            LiveSSHLog.event("stream command open \(result.liveDiagnosticStatus)")
             openResult = result
             openExpectation.fulfill()
         }
@@ -245,7 +289,9 @@ class LiveSSHTestCase: XCTestCase {
         let openExpectation = expectation(description: "Open streamed command")
         var openResult: Result<SSHCommand, SSHKitError>?
 
+        LiveSSHLog.event("stream command open start \(commandLine)")
         connection.openCommand(commandLine, callbackQueue: .main, eventHandler: eventHandler) { result in
+            LiveSSHLog.event("stream command open \(result.liveDiagnosticStatus)")
             openResult = result
             openExpectation.fulfill()
         }
@@ -258,7 +304,9 @@ class LiveSSHTestCase: XCTestCase {
         let expectation = expectation(description: "Close Alpine SSH fixture connection")
         var closeResult: Result<Void, SSHKitError>?
 
+        LiveSSHLog.event("connection close start")
         connection.close(callbackQueue: .main) { result in
+            LiveSSHLog.event("connection close \(result.liveDiagnosticStatus)")
             closeResult = result
             expectation.fulfill()
         }
@@ -270,7 +318,9 @@ class LiveSSHTestCase: XCTestCase {
     func close(_ command: SSHCommand) throws {
         let expectation = expectation(description: "Close streamed command")
         var closeResult: Result<Void, SSHKitError>?
+        LiveSSHLog.event("stream command close start")
         command.close(callbackQueue: .main) { result in
+            LiveSSHLog.event("stream command close \(result.liveDiagnosticStatus)")
             closeResult = result
             expectation.fulfill()
         }
@@ -281,7 +331,9 @@ class LiveSSHTestCase: XCTestCase {
     func close(_ shell: SSHShell) throws {
         let expectation = expectation(description: "Close PTY shell")
         var closeResult: Result<Void, SSHKitError>?
+        LiveSSHLog.event("shell close start")
         shell.close(callbackQueue: .main) { result in
+            LiveSSHLog.event("shell close \(result.liveDiagnosticStatus)")
             closeResult = result
             expectation.fulfill()
         }
@@ -292,7 +344,9 @@ class LiveSSHTestCase: XCTestCase {
     func close(_ sftp: SFTPClient) throws {
         let expectation = expectation(description: "Close SFTP client")
         var closeResult: Result<Void, SSHKitError>?
+        LiveSSHLog.event("sftp close start")
         sftp.close(callbackQueue: .main) { result in
+            LiveSSHLog.event("sftp close \(result.liveDiagnosticStatus)")
             closeResult = result
             expectation.fulfill()
         }
@@ -314,7 +368,9 @@ class LiveSSHTestCase: XCTestCase {
     private func resize(_ shell: SSHShell, columns: UInt16, rows: UInt16) throws {
         let expectation = expectation(description: "Resize Alpine SSH PTY shell")
         var resizeResult: Result<Void, SSHKitError>?
+        LiveSSHLog.event("shell resize start columns=\(columns) rows=\(rows)")
         shell.resize(columns: columns, rows: rows, callbackQueue: .main) { result in
+            LiveSSHLog.event("shell resize \(result.liveDiagnosticStatus)")
             resizeResult = result
             expectation.fulfill()
         }
@@ -325,7 +381,9 @@ class LiveSSHTestCase: XCTestCase {
     private func write(_ string: String, to shell: SSHShell) throws {
         let expectation = expectation(description: "Write Alpine SSH PTY shell command")
         var writeResult: Result<Void, SSHKitError>?
+        LiveSSHLog.event("shell write start bytes=\(string.utf8.count)")
         shell.write(Data(string.utf8), callbackQueue: .main) { result in
+            LiveSSHLog.event("shell write \(result.liveDiagnosticStatus)")
             writeResult = result
             expectation.fulfill()
         }
@@ -336,7 +394,9 @@ class LiveSSHTestCase: XCTestCase {
     func write(_ string: String, to command: SSHCommand) throws {
         let expectation = expectation(description: "Write streamed command input")
         var writeResult: Result<Void, SSHKitError>?
+        LiveSSHLog.event("stream command write start bytes=\(string.utf8.count)")
         command.write(Data(string.utf8), callbackQueue: .main) { result in
+            LiveSSHLog.event("stream command write \(result.liveDiagnosticStatus)")
             writeResult = result
             expectation.fulfill()
         }
@@ -347,7 +407,9 @@ class LiveSSHTestCase: XCTestCase {
     func sendEOF(to command: SSHCommand) throws {
         let expectation = expectation(description: "Send streamed command EOF")
         var eofResult: Result<Void, SSHKitError>?
+        LiveSSHLog.event("stream command eof start")
         command.sendEOF(callbackQueue: .main) { result in
+            LiveSSHLog.event("stream command eof \(result.liveDiagnosticStatus)")
             eofResult = result
             expectation.fulfill()
         }
@@ -420,6 +482,7 @@ func requireExternalFixtureHost(_ host: String) throws {
 struct AlpineSSHFixture {
     var host: String
     var port: UInt16
+    var remoteSSHDPort: UInt16
     var username: String
     var password: String
     var knownHostsEntry: String
@@ -429,10 +492,13 @@ struct AlpineSSHFixture {
         host = try Self.requiredEnvironmentValue("SSHKIT_LIVE_HOST")
         try requireExternalFixtureHost(host)
         port = try UInt16(Self.requiredEnvironmentValue("SSHKIT_LIVE_PORT")).unwrap("SSHKIT_LIVE_PORT must be a valid UInt16.")
+        remoteSSHDPort = try Self.optionalPortEnvironmentValue("SSHKIT_LIVE_REMOTE_SSHD_PORT") ?? 22
         username = try Self.requiredEnvironmentValue("SSHKIT_LIVE_USERNAME")
         password = try Self.requiredEnvironmentValue("SSHKIT_LIVE_PASSWORD")
         knownHostsEntry = try Self.requiredEnvironmentValue("SSHKIT_LIVE_KNOWN_HOSTS")
         privateKey = try Self.requiredEnvironmentValue("SSHKIT_LIVE_PRIVATE_KEY")
+        LiveSSHLog.fixture("alpine", host: host, port: port, username: username)
+        LiveSSHLog.event("fixture=alpine remoteSSHDPort=\(remoteSSHDPort)")
     }
 
     private static func requiredEnvironmentValue(_ name: String) throws -> String {
@@ -440,6 +506,13 @@ struct AlpineSSHFixture {
             throw LiveSSHFixtureError.missingEnvironment(name)
         }
         return value
+    }
+
+    private static func optionalPortEnvironmentValue(_ name: String) throws -> UInt16? {
+        guard let value = ProcessInfo.processInfo.environment[name], value.isEmpty == false else {
+            return nil
+        }
+        return try UInt16(value).unwrap("\(name) must be a valid UInt16.")
     }
 }
 
@@ -457,6 +530,7 @@ struct DropbearSSHFixture {
         username = try Self.requiredEnvironmentValue("SSHKIT_DROPBEAR_USERNAME")
         password = try Self.requiredEnvironmentValue("SSHKIT_DROPBEAR_PASSWORD")
         knownHostsEntry = try Self.requiredEnvironmentValue("SSHKIT_DROPBEAR_KNOWN_HOSTS")
+        LiveSSHLog.fixture("dropbear", host: host, port: port, username: username)
     }
 
     private static func requiredEnvironmentValue(_ name: String) throws -> String {
@@ -472,6 +546,7 @@ enum LiveSSHFixtureError: Error, CustomStringConvertible {
     case missingCapability(String)
     case missingEnvironment(String)
     case invalidEnvironment(String)
+    case protocolFailure(String)
 
     var description: String {
         switch self {
@@ -482,6 +557,8 @@ enum LiveSSHFixtureError: Error, CustomStringConvertible {
         case let .missingEnvironment(name):
             "Missing required live SSH test environment value: \(name)."
         case let .invalidEnvironment(message):
+            message
+        case let .protocolFailure(message):
             message
         }
     }
@@ -582,5 +659,31 @@ extension Optional {
             throw LiveSSHFixtureError.invalidEnvironment(message)
         }
         return wrapped
+    }
+}
+
+extension SSHAuthentication {
+    var liveDiagnosticName: String {
+        switch self {
+        case .agent:
+            "agent"
+        case .keyboardInteractive:
+            "keyboardInteractive"
+        case .password:
+            "password"
+        case .privateKeyFile:
+            "privateKeyFile"
+        }
+    }
+}
+
+extension Result where Failure == SSHKitError {
+    var liveDiagnosticStatus: String {
+        switch self {
+        case .success:
+            "success"
+        case let .failure(error):
+            "failure code=\(error.code)"
+        }
     }
 }

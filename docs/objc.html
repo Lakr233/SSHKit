@@ -128,13 +128,15 @@ configuration.hostKeyPolicy =
 
 <h3>Host-key discovery</h3>
 <table>
-<thead><tr><th>Type</th><th>Header</th><th>Purpose</th></tr></thead>
+<thead><tr><th>Symbol</th><th>Header</th><th>Purpose</th></tr></thead>
 <tbody>
-<tr><td><code>SSHKitDiscoveredHostKey</code></td><td><code>SSHKitConnection.h</code></td><td>Result struct: <code>host</code>, <code>port</code>, <code>fingerprint</code> (SHA-256 string).</td></tr>
-<tr><td><code>-[SSHKitConnection discoverHostKeyWithCompletion:]</code></td><td><code>SSHKitConnection.h</code></td><td>Transport-only handshake. Reads the server&rsquo;s fingerprint and closes the session without authenticating.</td></tr>
+<tr><td><code>SSHKitHostKeyDiscoveryResult</code></td><td><code>SSHKitConnection.h</code></td><td><code>NSObject</code> with <code>host</code> (<code>NSString</code>), <code>port</code> (<code>uint16_t</code>), and <code>fingerprint</code> (<code>NSString</code> in <code>SHA256:…</code> form).</td></tr>
+<tr><td><code>SSHKitHostKeyDiscoveryCompletion</code></td><td><code>SSHKitConnection.h</code></td><td>Block typedef: <code>void(^)(SSHKitHostKeyDiscoveryResult *_Nullable, NSError *_Nullable)</code>.</td></tr>
+<tr><td><code>+[SSHKitClient discoverHostKeyWithConfiguration:completion:]</code></td><td><code>SSHKitClient.h</code></td><td>Stateless entry point. Builds a discovery-only session from an <code>SSHKitConfiguration</code>, returns the result, and tears the session down.</td></tr>
+<tr><td><code>-[SSHKitConnection discoverHostKeyWithCompletion:]</code></td><td><code>SSHKitConnection.h</code></td><td>Instance variant for callers that have already constructed an <code>SSHKitConnection</code> from a discovery configuration.</td></tr>
 </tbody>
 </table>
-<p>The Obj-C entry point is built on the same <code>SSHKitConnection</code> as a regular connect, but uses a discovery-only configuration path. Build an <code>SSHKitConfiguration</code> with the host, port, timeout, proxy, and algorithm fields, then call <code>discoverHostKeyWithCompletion:</code>; <code>authentication</code> and <code>username</code> are not required.</p>
+<p>Either entry point performs a transport-only handshake. Build an <code>SSHKitConfiguration</code> with the host, port, timeout, proxy, and algorithm fields &mdash; <code>authentication</code> and <code>username</code> are not consulted during discovery.</p>
 
 <h3>Logging</h3>
 <table>
@@ -190,7 +192,7 @@ configuration.hostKeyPolicy =
 <tr><td><code>SSHTunnelChannel</code></td><td><code>SSHKitTunnelChannel</code></td></tr>
 <tr><td><code>SSHPortForward</code></td><td><code>SSHKitPortForward</code></td></tr>
 <tr><td><code>SSHAuthenticationMethod</code> / <code>SSHAuthenticationDiscoveryResult</code></td><td><code>SSHKitAuthenticationMethod</code> / <code>SSHKitAuthenticationDiscoveryResult</code></td></tr>
-<tr><td><code>SSHHostKeyDiscoveryConfiguration</code> / <code>SSHDiscoveredHostKey</code> / <code>SSHClient.discoverHostKey</code></td><td><code>SSHKitConfiguration</code> (subset of fields) / <code>SSHKitDiscoveredHostKey</code> / <code>-[SSHKitConnection discoverHostKeyWithCompletion:]</code></td></tr>
+<tr><td><code>SSHHostKeyDiscoveryConfiguration</code> / <code>SSHDiscoveredHostKey</code> / <code>SSHClient.discoverHostKey</code></td><td><code>SSHKitConfiguration</code> (transport fields) / <code>SSHKitHostKeyDiscoveryResult</code> / <code>+[SSHKitClient discoverHostKeyWithConfiguration:completion:]</code> (or <code>-[SSHKitConnection discoverHostKeyWithCompletion:]</code>)</td></tr>
 <tr><td><code>SSHLogLevel</code> / <code>SSHLogEvent</code> / <code>SSHLogRecorder</code></td><td><code>SSHKitLogLevel</code> / <code>SSHKitLogEvent</code> / <code>SSHKitLogRecorder</code></td></tr>
 <tr><td><code>SSHKitError</code> / <code>SSHKitErrorCode</code></td><td><code>NSError</code> in <code>SSHKitErrorDomain</code> / <code>SSHKitErrorCode</code></td></tr>
 <tr><td><code>SSHGeneratedKeyPair</code> / <code>SSHKeyGenerator</code> / <code>SSHKeyGenerationType</code></td><td><code>SSHKitGeneratedKeyPair</code> / <code>SSHKitKeyGenerationType</code></td></tr>

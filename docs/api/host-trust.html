@@ -94,15 +94,26 @@
     public var logHandler: SSHLogHandler?
     public var proxyRoute: SSHProxyRoute?
     public var algorithmProfile: SSHAlgorithmProfile
+
+    public init(
+        host: String,
+        port: UInt16 = 22,
+        timeout: TimeInterval = 30,
+        logHandler: SSHLogHandler? = nil,
+        proxyRoute: SSHProxyRoute? = nil,
+        algorithmProfile: SSHAlgorithmProfile = .modern
+    )
 }
 </code></pre>
-<p>Carries the transport-level fields needed to reach the server. Notably absent: <code>username</code> and <code>authentication</code> &mdash; discovery never authenticates.</p>
+<p>Carries the transport-level fields needed to reach the server. Notably absent: <code>username</code> and <code>authentication</code> &mdash; discovery never authenticates. The init preconditions reject an empty host, a zero port, and a non-positive timeout.</p>
 
 <h3 id="SSHDiscoveredHostKey">SSHDiscoveredHostKey</h3>
 <pre><code class="language-swift">public struct SSHDiscoveredHostKey: Equatable, Sendable {
     public let host: String
     public let port: UInt16
     public let fingerprint: SSHHostKeyFingerprint
+
+    public init(host: String, port: UInt16, fingerprint: SSHHostKeyFingerprint)
 }
 </code></pre>
 

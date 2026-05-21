@@ -90,7 +90,7 @@ let package = Package(
         .library(name: "CLibSSH", type: .dynamic, targets: ["CLibSSH"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/Lakr233/openssl-spm.git", from: "3.6.0"),
+        .package(url: "https://github.com/Lakr233/openssl-spm.git", from: "4.0.0"),
         .package(url: "https://github.com/kishikawakatsumi/KeychainAccess.git", from: "4.2.2"),
     ],
     targets: [

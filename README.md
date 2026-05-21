@@ -27,6 +27,10 @@ Script/test-live-fixture.sh
 
 `Script/test-live-fixture.sh` requires the external fixture environment in `Documentation/Fixtures/AlpineSSH.md` and rejects loopback hosts.
 
+## Example app
+
+`Example/SSHKitExample.xcodeproj` is a multi-platform SwiftUI sample (iOS / macOS / Mac Catalyst on the 26 floor) that exercises commands, shell, SFTP, port forwards, and the latency probe. The terminal is wired through [libghostty-spm](https://github.com/Lakr233/libghostty-spm) via `InMemoryTerminalSession`. See `Example/README.md`.
+
 ## License
 
 SSHKit project code is licensed under the MIT License. Vendored libssh code remains under its upstream GNU Lesser General Public License terms at `Vendor/libssh/COPYING`. See `NOTICE`.

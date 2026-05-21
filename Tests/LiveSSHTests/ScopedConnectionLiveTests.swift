@@ -44,14 +44,14 @@ final class ScopedConnectionLiveTests: LiveSSHTestCase {
             username: fixture.username,
             authentication: .privateKeyFile(path: makePrivateKeyFile(fixture: fixture)),
             hostKeyPolicy: .knownHostsFile(makeKnownHostsFile(fixture: fixture)),
-            timeout: 10,
+            timeout: 10
         )
     }
 
     private func assertConnectionIsClosed(
         _ connection: SSHConnection,
         file: StaticString = #filePath,
-        line: UInt = #line,
+        line: UInt = #line
     ) async throws {
         do {
             _ = try await connection.execute("true")

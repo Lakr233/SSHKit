@@ -9,7 +9,7 @@ import Testing
         route: .direct,
         connectDuration: 0.12,
         sshServiceDuration: 0.03,
-        totalDuration: 0.18,
+        totalDuration: 0.18
     )
 
     #expect(report.host == "example.com")
@@ -25,7 +25,7 @@ import Testing
         host: "target.example.com",
         username: "user",
         authentication: .password("secret"),
-        hostKeyPolicy: .knownHostsFile("/tmp/known_hosts"),
+        hostKeyPolicy: .knownHostsFile("/tmp/known_hosts")
     )
 
     #expect(SSHPortLatencyRoute(proxyRoute: configuration.proxyRoute) == .direct)
@@ -45,7 +45,7 @@ import Testing
         port: 2222,
         username: "jump-user",
         authentication: .password("secret"),
-        hostKeyPolicy: .knownHostsFile("/tmp/jump_known_hosts"),
+        hostKeyPolicy: .knownHostsFile("/tmp/jump_known_hosts")
     )
 
     #expect(SSHPortLatencyRoute(proxyRoute: .proxyJump(jumpHost)) == .proxyJump(host: "jump.example.com", port: 2222))

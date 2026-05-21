@@ -19,7 +19,7 @@ public struct SSHAlgorithmProfile: Equatable, Sendable {
         ciphersServerToClient: String? = nil,
         macsClientToServer: String? = nil,
         macsServerToClient: String? = nil,
-        minimumRSAKeySize: Int? = nil,
+        minimumRSAKeySize: Int? = nil
     ) {
         self.keyExchangeAlgorithms = keyExchangeAlgorithms
         self.hostKeyAlgorithms = hostKeyAlgorithms
@@ -36,7 +36,7 @@ public struct SSHAlgorithmProfile: Equatable, Sendable {
     public static let legacyRSA = SSHAlgorithmProfile(
         hostKeyAlgorithms: "+ssh-rsa",
         publicKeyAcceptedAlgorithms: "+ssh-rsa",
-        minimumRSAKeySize: 1024,
+        minimumRSAKeySize: 1024
     )
 
     public func inspectEffectiveAlgorithms() throws -> SSHAlgorithmSnapshot {
@@ -49,7 +49,7 @@ public struct SSHAlgorithmProfile: Equatable, Sendable {
                 ciphersServerToClient: ciphersServerToClient,
                 macsClientToServer: macsClientToServer,
                 macsServerToClient: macsServerToClient,
-                minimumRSAKeySize: minimumRSAKeySize.map(NSNumber.init(value:)),
+                minimumRSAKeySize: minimumRSAKeySize.map(NSNumber.init(value:))
             )
             return SSHAlgorithmSnapshot(values: values)
         } catch let error as NSError {

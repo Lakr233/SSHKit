@@ -20,7 +20,7 @@ public struct SSHClientConfiguration: Sendable {
         timeout: TimeInterval = 30,
         logHandler: SSHLogHandler? = nil,
         proxyRoute: SSHProxyRoute? = nil,
-        algorithmProfile: SSHAlgorithmProfile = .modern,
+        algorithmProfile: SSHAlgorithmProfile = .modern
     ) {
         self.host = host
         self.port = port
@@ -36,7 +36,7 @@ public struct SSHClientConfiguration: Sendable {
     public func diagnosticReport(
         phase: String = "configuration",
         metadata: [String: String] = [:],
-        recentEvents: [SSHLogEvent] = [],
+        recentEvents: [SSHLogEvent] = []
     ) -> SSHDiagnosticReport {
         SSHDiagnosticReport(
             phase: phase,
@@ -46,7 +46,7 @@ public struct SSHClientConfiguration: Sendable {
             authentication: authentication.diagnosticName,
             hostKeyPolicy: hostKeyPolicy.diagnosticName,
             metadata: metadata,
-            recentEvents: recentEvents,
+            recentEvents: recentEvents
         )
     }
 }
@@ -83,7 +83,7 @@ public struct SSHJumpHost: Sendable {
         authentication: SSHAuthentication,
         hostKeyPolicy: SSHHostKeyPolicy,
         timeout: TimeInterval = 30,
-        algorithmProfile: SSHAlgorithmProfile = .modern,
+        algorithmProfile: SSHAlgorithmProfile = .modern
     ) {
         precondition(host.isEmpty == false, "Jump host must not be empty.")
         precondition(port > 0, "Jump port must be greater than zero.")

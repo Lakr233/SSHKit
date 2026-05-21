@@ -9,7 +9,7 @@ final class CollectedCommandLiveTests: LiveSSHTestCase {
         let connection = try connect(
             authentication: .password(fixture.password),
             fixture: fixture,
-            knownHostsPath: makeKnownHostsFile(fixture: fixture),
+            knownHostsPath: makeKnownHostsFile(fixture: fixture)
         )
 
         do {
@@ -33,7 +33,7 @@ final class CollectedCommandLiveTests: LiveSSHTestCase {
         let connection = try connect(
             authentication: .privateKeyFile(path: makePrivateKeyFile(fixture: fixture)),
             fixture: fixture,
-            knownHostsPath: makeKnownHostsFile(fixture: fixture),
+            knownHostsPath: makeKnownHostsFile(fixture: fixture)
         )
 
         do {

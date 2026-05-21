@@ -6,11 +6,13 @@ struct TerminalScreen: View {
     @Environment(ConnectionStore.self) private var store
     @Environment(\.colorScheme) private var colorScheme
     @State private var session: SSHTerminalSession?
+    @FocusState private var isTerminalFocused: Bool
 
     var body: some View {
         Group {
             if let session {
-                FocusedTerminalSurfaceView(context: session.viewState)
+                TerminalSurfaceView(context: session.viewState)
+                    .terminalFocusOnAppear($isTerminalFocused)
                     .onChange(of: colorScheme, initial: true) {
                         session.viewState.adopt(colorScheme: colorScheme)
                     }

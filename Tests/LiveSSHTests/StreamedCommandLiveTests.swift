@@ -59,7 +59,7 @@ final class StreamedCommandLiveTests: LiveSSHTestCase {
             let eventCapture = CommandEventCapture()
             let command = try openStreamingCommand(
                 "for item in one two three; do printf 'tick-%s\\n' \"$item\"; sleep 1; done",
-                on: connection,
+                on: connection
             ) { event in
                 switch event {
                 case let .standardOutput(data):
@@ -122,7 +122,7 @@ final class StreamedCommandLiveTests: LiveSSHTestCase {
             let eventCapture = CommandEventCapture()
             let command = try openStreamingCommand(
                 "printf 'before-fail\\n'; printf 'fail-err\\n' >&2; exit 7",
-                on: connection,
+                on: connection
             ) { event in
                 switch event {
                 case let .standardOutput(data):

@@ -1,3 +1,4 @@
+import GhosttyTerminal
 import SSHKit
 import SwiftUI
 
@@ -10,9 +11,11 @@ struct MultiCommandStressView: View {
     @State private var isRunning: Bool = false
     @State private var task: Task<Void, Never>?
     @State private var terminal = DiagnosticsTerminal()
+    @FocusState private var isTerminalFocused: Bool
 
     var body: some View {
-        FocusedTerminalSurfaceView(context: terminal.viewState)
+        TerminalSurfaceView(context: terminal.viewState)
+            .terminalFocusOnAppear($isTerminalFocused)
             .onChange(of: colorScheme, initial: true) {
                 terminal.viewState.adopt(colorScheme: colorScheme)
             }

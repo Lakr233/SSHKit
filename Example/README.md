@@ -36,7 +36,7 @@ Open `Example/SSHKitExample.xcodeproj` in Xcode 26 or later. The Swift Package
 references resolve automatically:
 
 - SSHKit (this repo, via `XCLocalSwiftPackageReference relativePath = ..`)
-- libghostty-spm 1.1.5+
+- libghostty-spm 1.1.6+
 
 Default credentials in `SetupConnectionView` point at the local Alpine fixture
 described in `../Documentation/Fixtures/AlpineSSH.md` (`127.0.0.1:7422`,
@@ -61,7 +61,7 @@ Live coverage continues to live in the `LiveSSHTests` target under
 ## Binary dependency compatibility
 
 The example app pins its package graph to OpenSSL 4.0.0 and libghostty-spm
-1.1.5 or newer. Those releases keep the XCFramework module maps inside their
+1.1.6 or newer. Those releases keep the XCFramework module maps inside their
 own framework bundles, so Xcode can process both binary dependencies in the
 same build.
 

@@ -67,7 +67,7 @@ final class SCPLiveTests: LiveSSHTestCase {
             username: fixture.username,
             authentication: .privateKeyFile(path: makePrivateKeyFile(fixture: fixture)),
             hostKeyPolicy: .knownHostsFile(makeKnownHostsFile(fixture: fixture)),
-            timeout: 10,
+            timeout: 10
         )
         return try await SSHClient.connect(configuration: configuration)
     }
@@ -76,7 +76,7 @@ final class SCPLiveTests: LiveSSHTestCase {
         let result = try await connection.execute("command -v scp >/dev/null 2>&1")
         try requireLiveFixtureCapability(
             result.exitStatus == 0,
-            "SCP live tests require scp on the fixture host.",
+            "SCP live tests require scp on the fixture host."
         )
     }
 

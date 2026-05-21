@@ -1,3 +1,4 @@
+import GhosttyTerminal
 import SSHKit
 import SwiftUI
 
@@ -8,9 +9,11 @@ struct LatencyView: View {
     @State private var isMeasuring: Bool = false
     @State private var sampleCount: Int = 0
     @State private var terminal = DiagnosticsTerminal()
+    @FocusState private var isTerminalFocused: Bool
 
     var body: some View {
-        FocusedTerminalSurfaceView(context: terminal.viewState)
+        TerminalSurfaceView(context: terminal.viewState)
+            .terminalFocusOnAppear($isTerminalFocused)
             .onChange(of: colorScheme, initial: true) {
                 terminal.viewState.adopt(colorScheme: colorScheme)
             }

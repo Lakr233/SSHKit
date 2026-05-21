@@ -75,7 +75,7 @@ final class LatencyLiveTests: LiveSSHTestCase {
         )
         let configuration = SSHClientConfiguration(
             host: "127.0.0.1",
-            port: fixture.port,
+            port: fixture.remoteSSHDPort,
             username: fixture.username,
             authentication: .privateKeyFile(path: privateKeyPath),
             hostKeyPolicy: .insecureAcceptAnyHostKey,

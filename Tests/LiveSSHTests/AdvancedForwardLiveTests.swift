@@ -99,7 +99,7 @@ final class AdvancedForwardLiveTests: LiveSSHTestCase {
 
             try withPrivateKeyConnection { commandConnection in
                 try requireRemoteNetcat(on: commandConnection)
-                let result = try execute("nc 127.0.0.1 \(forward.boundPort)", on: commandConnection)
+                let result = try execute("nc -w 2 127.0.0.1 \(forward.boundPort)", on: commandConnection)
                 XCTAssertEqual(result.exitStatus, 0)
                 XCTAssertEqual(String(data: result.standardOutput, encoding: .utf8), payload)
                 XCTAssertEqual(result.standardError, Data())
@@ -160,10 +160,10 @@ final class AdvancedForwardLiveTests: LiveSSHTestCase {
     }
 
     private func requireRemoteNetcat(on connection: SSHConnection) throws {
-        let result = try execute("command -v nc >/dev/null 2>&1", on: connection)
+        let result = try execute("command -v nc >/dev/null 2>&1 && nc -h 2>&1 | grep -q -- '-w'", on: connection)
         try requireLiveFixtureCapability(
             result.exitStatus == 0,
-            "Remote forward live test requires netcat on the fixture host.",
+            "Remote forward live test requires netcat with -w timeout support on the fixture host.",
         )
     }
 

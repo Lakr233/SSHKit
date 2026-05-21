@@ -59,13 +59,13 @@ final class CancellationLiveTests: LiveSSHTestCase {
         try requireLiveTestsEnabled()
 
         let connection = try await connectWithPrivateKey()
-        let sftp = try await connection.openSFTP()
         let fixtureID = UUID().uuidString
         let remotePath = "/tmp/sshkit-cancel-\(fixtureID).bin"
         let localURL = try makeTemporaryDirectory().appendingPathComponent("cancelled-download.bin")
 
         do {
             _ = try await connection.execute("dd if=/dev/zero of=\(shellQuoted(remotePath)) bs=1048576 count=128")
+            let sftp = try await connection.openSFTP()
             let downloadTask = Task {
                 try await sftp.download(remotePath: remotePath, to: localURL)
             }

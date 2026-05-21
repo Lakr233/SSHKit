@@ -33,6 +33,11 @@ public enum SSHClient {
                 sessionBox.store(session)
                 session.connect { error in
                     if let error = error as NSError? {
+                        if sessionBox.isCancelled {
+                            continuation.resume(throwing: SSHKitError(code: SSHKitErrorCode.cancelled.rawValue, message: "SSH connection was cancelled."))
+                            return
+                        }
+
                         continuation.resume(throwing: SSHKitError(error))
                         return
                     }
@@ -147,6 +152,13 @@ private final class SSHLockedSession: @unchecked Sendable {
         let shouldReturn = cancelled == false
         lock.unlock()
         return shouldReturn
+    }
+
+    var isCancelled: Bool {
+        lock.lock()
+        let value = cancelled
+        lock.unlock()
+        return value
     }
 
     func cancelStoredSession() {

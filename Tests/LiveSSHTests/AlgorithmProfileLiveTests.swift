@@ -64,6 +64,7 @@ private struct LegacyRSAFixture {
     var knownHostsEntry: String
 
     init() throws {
+        try Self.skipUnlessConfigured()
         host = try Self.requiredEnvironmentValue("SSHKIT_LEGACY_RSA_HOST")
         try requireExternalFixtureHost(host)
         port = try UInt16(Self.requiredEnvironmentValue("SSHKIT_LEGACY_RSA_PORT"))
@@ -72,6 +73,22 @@ private struct LegacyRSAFixture {
         password = try Self.requiredEnvironmentValue("SSHKIT_LEGACY_RSA_PASSWORD")
         knownHostsEntry = try Self.requiredEnvironmentValue("SSHKIT_LEGACY_RSA_KNOWN_HOSTS")
         LiveSSHLog.fixture("legacy-rsa", host: host, port: port, username: username)
+    }
+
+    private static func skipUnlessConfigured() throws {
+        let requiredNames = [
+            "SSHKIT_LEGACY_RSA_HOST",
+            "SSHKIT_LEGACY_RSA_PORT",
+            "SSHKIT_LEGACY_RSA_USERNAME",
+            "SSHKIT_LEGACY_RSA_PASSWORD",
+            "SSHKIT_LEGACY_RSA_KNOWN_HOSTS",
+        ]
+        let missingNames = requiredNames.filter { name in
+            ProcessInfo.processInfo.environment[name]?.isEmpty != false
+        }
+        guard missingNames.isEmpty else {
+            throw XCTSkip("Set \(missingNames.joined(separator: ", ")) to run legacy RSA live fixture tests.")
+        }
     }
 
     private static func requiredEnvironmentValue(_ name: String) throws -> String {

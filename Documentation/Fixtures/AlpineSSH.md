@@ -15,16 +15,17 @@ export SSHKIT_LIVE_PASSWORD="<password>"
 export SSHKIT_LIVE_KNOWN_HOSTS="<known-hosts-entry>"
 export SSHKIT_LIVE_PRIVATE_KEY="<private-key-pem>"
 export SSHKIT_LIVE_REMOTE_SSHD_PORT="22"
-export SSHKIT_LEGACY_RSA_HOST="legacy-rsa.example.com"
-export SSHKIT_LEGACY_RSA_PORT="22"
-export SSHKIT_LEGACY_RSA_USERNAME="root"
-export SSHKIT_LEGACY_RSA_PASSWORD="<password>"
-export SSHKIT_LEGACY_RSA_KNOWN_HOSTS="<known-hosts-entry>"
-export SSHKIT_DROPBEAR_HOST="dropbear.example.com"
-export SSHKIT_DROPBEAR_PORT="22"
-export SSHKIT_DROPBEAR_USERNAME="root"
-export SSHKIT_DROPBEAR_PASSWORD="<password>"
-export SSHKIT_DROPBEAR_KNOWN_HOSTS="<known-hosts-entry>"
+# Optional extra fixtures:
+# export SSHKIT_LEGACY_RSA_HOST="legacy-rsa.example.com"
+# export SSHKIT_LEGACY_RSA_PORT="22"
+# export SSHKIT_LEGACY_RSA_USERNAME="root"
+# export SSHKIT_LEGACY_RSA_PASSWORD="<password>"
+# export SSHKIT_LEGACY_RSA_KNOWN_HOSTS="<known-hosts-entry>"
+# export SSHKIT_DROPBEAR_HOST="dropbear.example.com"
+# export SSHKIT_DROPBEAR_PORT="22"
+# export SSHKIT_DROPBEAR_USERNAME="root"
+# export SSHKIT_DROPBEAR_PASSWORD="<password>"
+# export SSHKIT_DROPBEAR_KNOWN_HOSTS="<known-hosts-entry>"
 ```
 
 Each known-hosts value should contain one complete OpenSSH known-hosts line. `SSHKIT_LIVE_PRIVATE_KEY` should contain a private key accepted by the Alpine fixture user. `SSHKIT_LIVE_REMOTE_SSHD_PORT` is optional and defaults to `22`; it is the SSH port visible from inside the fixture host for direct TCP, local forward, and dynamic SOCKS tests. The legacy RSA fixture uses `SSHAlgorithmProfile.legacyRSA`, password authentication, known-host verification, and a real exec channel. The Dropbear fixture uses password authentication, known-host verification, and a real exec channel.
@@ -49,9 +50,17 @@ services:
 
 For that topology, set `SSHKIT_LIVE_PORT=7422` for the client connection from the developer machine, and keep `SSHKIT_LIVE_REMOTE_SSHD_PORT=22` for fixture-internal loopback targets such as `127.0.0.1:22`. The fixture `.env` file owns the root password and stays outside the repository.
 
+The Docker image should install both OpenSSH server and client packages so the live suite can exercise SCP through the real fixture:
+
+```dockerfile
+RUN apk add --no-cache openssh-server openssh-client shadow \
+    && mkdir -p /run/sshd /root/.ssh /fixture \
+    && chmod 700 /root/.ssh
+```
+
 ## Fixture Requirements
 
-The server should support:
+The required Alpine fixture should support:
 
 - password authentication
 - public-key authentication
@@ -69,7 +78,11 @@ The server should support:
 - `sleep` for cancellation tests
 - `dd` for SFTP transfer cancellation tests
 
-`SSHKIT_LIVE_HOST`, `SSHKIT_LEGACY_RSA_HOST`, and `SSHKIT_DROPBEAR_HOST` must point at external fixture hosts. Live tests reject loopback and localhost values so they exercise real SSH servers outside the developer machine's local sshd.
+The current shared Alpine container publishes `7422:22`, runs OpenSSH inside the container, uses `internal-sftp`, and includes `openssh-client` so `/usr/bin/scp` is available for SCP round-trip tests. The shared Alpine fixture currently reports `kbdinteractiveauthentication no`, so keyboard-interactive is recorded as a fixture-capability skip until that fixture is configured to advertise it.
+
+Dropbear and legacy RSA are extra live fixtures. Set the `SSHKIT_DROPBEAR_*` and `SSHKIT_LEGACY_RSA_*` variables when those external services are available.
+
+`SSHKIT_LIVE_HOST`, `SSHKIT_LEGACY_RSA_HOST`, and `SSHKIT_DROPBEAR_HOST` must point at external fixture hosts when set. Live tests reject loopback and localhost values so they exercise real SSH servers outside the developer machine's local sshd.
 
 The live suite also mutates the supplied known-hosts entry to verify host-key mismatch failures, and it starts local loopback proxy/listener processes only as route fixtures while keeping the SSH server target on the external fixture host.
 
@@ -79,7 +92,7 @@ Run the full live gate with:
 Script/test-live-fixture.sh
 ```
 
-The live gate requires every live test to run. If SwiftPM reports a skipped live test, the script exits with status `65`.
+The live gate requires the Alpine fixture tests to run. Dropbear, legacy RSA, and keyboard-interactive are treated as fixture-capability skips unless those extra services are configured.
 
 The smoke command used by the current live tests is:
 

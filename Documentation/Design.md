@@ -324,6 +324,7 @@ Public diagnostics:
 - structured log events
 - bounded in-memory log recorder
 - redacted support report
+- port latency reports with route, connect timing, SSH service timing, and total timing
 
 Unexpected failures must surface. SSHKit avoids silent fallbacks, empty success values, and default data that hides broken state.
 

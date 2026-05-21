@@ -106,7 +106,7 @@ final class ProxyRouteLiveTests: LiveSSHTestCase {
     }
 }
 
-private final class LoopbackProxyServer: @unchecked Sendable {
+final class LoopbackProxyServer: @unchecked Sendable {
     enum Mode {
         case socks5
         case httpConnect

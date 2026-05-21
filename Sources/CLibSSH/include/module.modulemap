@@ -1,0 +1,4 @@
+module CLibSSH {
+    umbrella header "CLibSSH/CLibSSH.h"
+    export *
+}

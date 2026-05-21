@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>SSHKit · Objective-C</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github.min.css"
+      integrity="sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L"
+      crossorigin="anonymous"
+      media="(prefers-color-scheme: light)">
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github-dark.min.css"
+      integrity="sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH"
+      crossorigin="anonymous"
+      media="(prefers-color-scheme: dark)">
+</head>
+<body>
+<nav class="topbar" aria-label="Primary">
+  <a class="home" href="index.html">SSHKit</a>
+  <a href="index.html">Overview</a>
+  <a href="guide/index.html">Guide</a>
+  <a href="api/index.html">API</a>
+  <a href="architecture.html">Architecture</a>
+  <a href="objc.html" aria-current="page">Obj-C</a>
+</nav>
+
+<main>
+<h1>Objective-C</h1>
+<p class="lede">SSHKit ships a parallel Objective-C façade (<code>SSHKitObjC</code>) covering connection, command, shell, SFTP, tunneling, and forwarding. A few Swift-only conveniences &mdash; the SCP helpers, the keychain credential store, key generation wrappers, the algorithm-profile struct, and the latency probe &mdash; do not have direct Obj-C counterparts and are listed at the bottom of this page. Import the umbrella header:</p>
+<pre><code class="language-objectivec">#import &lt;SSHKitObjC/SSHKitObjC.h&gt;</code></pre>
+
+<h2 id="example">Canonical example</h2>
+<pre><code class="language-objectivec">SSHKitConfiguration *configuration =
+    [[SSHKitConfiguration alloc] initWithHost:@"example.com"
+                                     username:@"deploy"];
+
+configuration.authentication = [SSHKitAuthentication password:@"secret"];
+// Use a known_hosts file on first connection; switch to a populated
+// keychain trust store after you have stored the server's fingerprint.
+configuration.hostKeyPolicy =
+    [SSHKitHostKeyPolicy knownHostsFile:[@"~/.ssh/known_hosts" stringByExpandingTildeInPath]];
+
+[SSHKitClient connectWithConfiguration:configuration
+                            completion:^(SSHKitConnection *connection, NSError *error) {
+    if (error != nil) {
+        NSLog(@"connect failed: %@", error);
+        return;
+    }
+    [connection executeCommand:@"uname -a"
+                    completion:^(SSHKitCommandResult *result, NSError *error) {
+        if (error != nil) {
+            NSLog(@"execute failed: %@", error);
+            return;
+        }
+        NSString *stdout = [[NSString alloc] initWithData:result.standardOutput
+                                                 encoding:NSUTF8StringEncoding];
+        NSLog(@"%@ (exit %d)", stdout, result.exitStatus);
+        [connection disconnectWithCompletion:^(NSError *error) {}];
+    }];
+}];
+</code></pre>
+
+<h2 id="class-inventory">Class &amp; type inventory</h2>
+
+<h3>Entry &amp; configuration</h3>
+<table>
+<thead><tr><th>Type</th><th>Header</th><th>Purpose</th></tr></thead>
+<tbody>
+<tr><td><code>SSHKitClient</code></td><td><code>SSHKitClient.h</code></td><td>Connect + auth-method discovery class methods.</td></tr>
+<tr><td><code>SSHKitConfiguration</code></td><td><code>SSHKitConfiguration.h</code></td><td>Connection settings (auth, host trust, proxy, algorithms, logging).</td></tr>
+<tr><td><code>SSHKitAuthentication</code></td><td><code>SSHKitConfiguration.h</code></td><td>Auth method wrapper with <code>+password:</code>, <code>+privateKeyFileAtPath:passphrase:</code>, <code>+keyboardInteractiveWithResponder:</code>, <code>+agent</code>, <code>+agentWithSocketPath:</code>.</td></tr>
+<tr><td><code>SSHKitAuthenticationKind</code></td><td><code>SSHKitConfiguration.h</code></td><td><code>NS_ENUM</code>: password / privateKeyFile / keyboardInteractive / agent.</td></tr>
+<tr><td><code>SSHKitKeyboardInteractivePrompt</code></td><td><code>SSHKitConfiguration.h</code></td><td>Prompt passed to the keyboard-interactive responder.</td></tr>
+<tr><td><code>SSHKitProxyRouteKind</code></td><td><code>SSHKitConfiguration.h</code></td><td><code>NS_ENUM</code>: none / SOCKS5 / HTTPConnect / ProxyJump.</td></tr>
+</tbody>
+</table>
+
+<h3>Host trust</h3>
+<table>
+<thead><tr><th>Type</th><th>Header</th><th>Purpose</th></tr></thead>
+<tbody>
+<tr><td><code>SSHKitHostKeyPolicy</code></td><td><code>SSHKitConfiguration.h</code></td><td>Wrapper with <code>+knownHostsFile:</code>, <code>+pinnedFingerprint:</code>, <code>+trustStore:</code>, <code>+keychainTrustStoreWithService:</code>, <code>+memoryTrustStore</code>, <code>+insecureAcceptAnyHostKey</code>.</td></tr>
+<tr><td><code>SSHKitHostKeyPolicyKind</code></td><td><code>SSHKitConfiguration.h</code></td><td><code>NS_ENUM</code>: insecure / knownHostsFile / pinned / trusted.</td></tr>
+<tr><td><code>SSHKitHostTrustStore</code></td><td><code>SSHKitConfiguration.h</code></td><td>Abstract base &mdash; <code>fingerprintForHost:port:error:</code>, <code>saveFingerprint:host:port:error:</code>, <code>removeFingerprintForHost:port:error:</code>.</td></tr>
+<tr><td><code>SSHKitMemoryTrustStore</code></td><td><code>SSHKitConfiguration.h</code></td><td>In-memory subclass.</td></tr>
+<tr><td><code>SSHKitKeychainTrustStore</code></td><td><code>SSHKitConfiguration.h</code></td><td>Keychain-backed subclass; <code>+defaultService</code> = <code>wiki.qaq.sshkit</code>.</td></tr>
+</tbody>
+</table>
+
+<h3>Connection &amp; jobs</h3>
+<table>
+<thead><tr><th>Type</th><th>Header</th><th>Purpose</th></tr></thead>
+<tbody>
+<tr><td><code>SSHKitConnection</code></td><td><code>SSHKitConnection.h</code></td><td>Connect, execute (with optional PTY via <code>executePTYCommand:completion:</code>), open command/shell/SFTP/tunnel/forward, disconnect.</td></tr>
+<tr><td><code>SSHKitCommandResult</code></td><td><code>SSHKitConnection.h</code></td><td>Collected command output + exit status + optional exit signal.</td></tr>
+<tr><td><code>SSHKitCommand</code></td><td><code>SSHKitConnection.h</code></td><td>Streamed command channel (<code>writeData:</code>, <code>sendEOF</code>, <code>close</code>).</td></tr>
+<tr><td><code>SSHKitCommandEvent</code> / <code>SSHKitCommandEventKind</code></td><td><code>SSHKitConnection.h</code></td><td>Event delivered to the streamed-command handler.</td></tr>
+<tr><td><code>SSHKitShell</code></td><td><code>SSHKitConnection.h</code></td><td>PTY shell channel (<code>writeData:</code>, <code>resizeWithColumns:rows:</code>, <code>close</code>).</td></tr>
+<tr><td><code>SSHKitShellEvent</code> / <code>SSHKitShellEventKind</code></td><td><code>SSHKitConnection.h</code></td><td>Event delivered to the shell handler.</td></tr>
+<tr><td><code>SSHKitTunnelChannel</code></td><td><code>SSHKitConnection.h</code></td><td>Direct TCP channel I/O.</td></tr>
+<tr><td><code>SSHKitPortForward</code></td><td><code>SSHKitConnection.h</code></td><td>Local / remote / dynamic forward handle (<code>boundHost</code>, <code>boundPort</code>).</td></tr>
+</tbody>
+</table>
+
+<h3>SFTP</h3>
+<table>
+<thead><tr><th>Type</th><th>Header</th><th>Purpose</th></tr></thead>
+<tbody>
+<tr><td><code>SSHKitSFTPClient</code></td><td><code>SSHKitConnection.h</code></td><td>Full SFTP surface: list, stat, mkdir, rmdir, rename, symlink, open, read, write, upload, download, resumable transfers with progress.</td></tr>
+<tr><td><code>SSHKitSFTPFileHandle</code></td><td><code>SSHKitConnection.h</code></td><td>Streaming file handle (<code>readDataWithMaximumLength:</code>, <code>writeData:</code>, <code>seekToOffset:</code>, <code>close</code>).</td></tr>
+<tr><td><code>SSHKitSFTPEntry</code></td><td><code>SSHKitConnection.h</code></td><td>Directory entry (<code>filename</code>, <code>attributes</code>).</td></tr>
+<tr><td><code>SSHKitSFTPAttributes</code></td><td><code>SSHKitConnection.h</code></td><td>File attributes (size, permissions, uid, gid, type, dates).</td></tr>
+<tr><td><code>SSHKitSFTPFileOpenFlags</code></td><td><code>SSHKitConnection.h</code></td><td><code>NS_OPTIONS</code>: Read / Write / Create / Truncate / Append.</td></tr>
+</tbody>
+</table>
+
+<h3>Authentication discovery</h3>
+<table>
+<thead><tr><th>Type</th><th>Header</th><th>Purpose</th></tr></thead>
+<tbody>
+<tr><td><code>SSHKitAuthenticationDiscoveryResult</code></td><td><code>SSHKitConnection.h</code></td><td>Returned by <code>discoverAuthenticationMethodsWithCompletion:</code>: methods + banners.</td></tr>
+<tr><td><code>SSHKitAuthenticationMethod</code></td><td><code>SSHKitConnection.h</code></td><td><code>NS_ENUM</code>: none / password / publicKey / hostBased / keyboardInteractive / gssapi.</td></tr>
+</tbody>
+</table>
+
+<h3>Host-key discovery</h3>
+<table>
+<thead><tr><th>Symbol</th><th>Header</th><th>Purpose</th></tr></thead>
+<tbody>
+<tr><td><code>SSHKitHostKeyDiscoveryResult</code></td><td><code>SSHKitConnection.h</code></td><td><code>NSObject</code> with <code>host</code> (<code>NSString</code>), <code>port</code> (<code>uint16_t</code>), and <code>fingerprint</code> (<code>NSString</code> in <code>SHA256:…</code> form).</td></tr>
+<tr><td><code>SSHKitHostKeyDiscoveryCompletion</code></td><td><code>SSHKitConnection.h</code></td><td>Block typedef: <code>void(^)(SSHKitHostKeyDiscoveryResult *_Nullable, NSError *_Nullable)</code>.</td></tr>
+<tr><td><code>+[SSHKitClient discoverHostKeyWithConfiguration:completion:]</code></td><td><code>SSHKitClient.h</code></td><td>Stateless entry point. Builds a discovery-only session from an <code>SSHKitConfiguration</code>, returns the result, and tears the session down.</td></tr>
+<tr><td><code>-[SSHKitConnection discoverHostKeyWithCompletion:]</code></td><td><code>SSHKitConnection.h</code></td><td>Instance variant for callers that have already constructed an <code>SSHKitConnection</code> from a discovery configuration.</td></tr>
+</tbody>
+</table>
+<p>Either entry point performs a transport-only handshake. Build an <code>SSHKitConfiguration</code> with the host, port, timeout, proxy, and algorithm fields &mdash; <code>authentication</code> and <code>username</code> are not consulted during discovery.</p>
+
+<h3>Logging</h3>
+<table>
+<thead><tr><th>Type</th><th>Header</th><th>Purpose</th></tr></thead>
+<tbody>
+<tr><td><code>SSHKitLogLevel</code></td><td><code>SSHKitConfiguration.h</code></td><td><code>NS_ENUM</code>: debug / info / warning / error.</td></tr>
+<tr><td><code>SSHKitLogEvent</code></td><td><code>SSHKitConfiguration.h</code></td><td>Level + phase + message + metadata + timestamp.</td></tr>
+<tr><td><code>SSHKitLogRecorder</code></td><td><code>SSHKitConfiguration.h</code></td><td>Bounded log buffer; events stored in their redacted form.</td></tr>
+<tr><td><code>SSHKitLogHandler</code></td><td><code>SSHKitConfiguration.h</code></td><td>Block typedef: <code>void(^)(SSHKitLogEvent *)</code>.</td></tr>
+</tbody>
+</table>
+
+<h3>Errors</h3>
+<table>
+<thead><tr><th>Symbol</th><th>Header</th><th>Purpose</th></tr></thead>
+<tbody>
+<tr><td><code>SSHKitErrorDomain</code></td><td><code>SSHKitError.h</code></td><td><code>NSErrorDomain</code> used by every emitted <code>NSError</code>.</td></tr>
+<tr><td><code>SSHKitErrorCode</code></td><td><code>SSHKitError.h</code></td><td><code>NS_ERROR_ENUM</code> with codes 1&ndash;11 (see the <a href="api/errors.html#SSHKitErrorCode">code table</a>).</td></tr>
+<tr><td><code>SSHKitMakeError(code, message)</code></td><td><code>SSHKitError.h</code></td><td>Helper to build an <code>NSError</code> in the SSHKit domain.</td></tr>
+</tbody>
+</table>
+
+<h3>Key generation &amp; algorithm inspection</h3>
+<table>
+<thead><tr><th>Type</th><th>Header</th><th>Purpose</th></tr></thead>
+<tbody>
+<tr><td><code>SSHKitGeneratedKeyPair</code></td><td><code>SSHKitGeneratedKeyPair.h</code></td><td><code>+generateOpenSSHKeyPairWithType:bits:comment:passphrase:error:</code>.</td></tr>
+<tr><td><code>SSHKitKeyGenerationType</code></td><td><code>SSHKitGeneratedKeyPair.h</code></td><td><code>NS_ENUM</code>: Ed25519 / RSA / ECDSAP256 / ECDSAP384 / ECDSAP521.</td></tr>
+<tr><td><code>SSHKitAlgorithmInspector</code></td><td><code>SSHKitAlgorithmInspector.h</code></td><td><code>+inspectAlgorithmsWith…</code> &mdash; resolves a profile against the vendored libssh build.</td></tr>
+</tbody>
+</table>
+
+<h2 id="mapping">Swift → Obj-C mapping</h2>
+<table>
+<thead><tr><th>Swift</th><th>Objective-C</th></tr></thead>
+<tbody>
+<tr><td><code>SSHClient</code></td><td><code>SSHKitClient</code></td></tr>
+<tr><td><code>SSHClient.Configuration</code> / <code>SSHClientConfiguration</code></td><td><code>SSHKitConfiguration</code></td></tr>
+<tr><td><code>SSHAuthentication</code></td><td><code>SSHKitAuthentication</code> + <code>SSHKitAuthenticationKind</code></td></tr>
+<tr><td><code>SSHKeyboardInteractivePrompt</code></td><td><code>SSHKitKeyboardInteractivePrompt</code></td></tr>
+<tr><td><code>SSHHostKeyPolicy</code></td><td><code>SSHKitHostKeyPolicy</code> + <code>SSHKitHostKeyPolicyKind</code></td></tr>
+<tr><td><code>SSHHostTrustStore</code></td><td><code>SSHKitHostTrustStore</code> (abstract base class)</td></tr>
+<tr><td><code>SSHMemoryHostTrustStore</code></td><td><code>SSHKitMemoryTrustStore</code></td></tr>
+<tr><td><code>SSHKeychainHostTrustStore</code></td><td><code>SSHKitKeychainTrustStore</code></td></tr>
+<tr><td><code>SSHProxyRoute</code></td><td><code>SSHKitProxyRouteKind</code> + proxy fields on <code>SSHKitConfiguration</code></td></tr>
+<tr><td><code>SSHConnection</code></td><td><code>SSHKitConnection</code></td></tr>
+<tr><td><code>SSHCommandResult</code></td><td><code>SSHKitCommandResult</code></td></tr>
+<tr><td><code>SSHCommand</code> / <code>SSHCommandEvent</code></td><td><code>SSHKitCommand</code> / <code>SSHKitCommandEvent</code></td></tr>
+<tr><td><code>SSHShell</code> / <code>SSHShellEvent</code></td><td><code>SSHKitShell</code> / <code>SSHKitShellEvent</code></td></tr>
+<tr><td><code>SFTPClient</code></td><td><code>SSHKitSFTPClient</code></td></tr>
+<tr><td><code>SFTPFileHandle</code></td><td><code>SSHKitSFTPFileHandle</code></td></tr>
+<tr><td><code>SFTPEntry</code> / <code>SFTPAttributes</code> / <code>SFTPFileOpenFlags</code></td><td><code>SSHKitSFTPEntry</code> / <code>SSHKitSFTPAttributes</code> / <code>SSHKitSFTPFileOpenFlags</code></td></tr>
+<tr><td><code>SSHTunnelChannel</code></td><td><code>SSHKitTunnelChannel</code></td></tr>
+<tr><td><code>SSHPortForward</code></td><td><code>SSHKitPortForward</code></td></tr>
+<tr><td><code>SSHAuthenticationMethod</code> / <code>SSHAuthenticationDiscoveryResult</code></td><td><code>SSHKitAuthenticationMethod</code> / <code>SSHKitAuthenticationDiscoveryResult</code></td></tr>
+<tr><td><code>SSHHostKeyDiscoveryConfiguration</code> / <code>SSHDiscoveredHostKey</code> / <code>SSHClient.discoverHostKey</code></td><td><code>SSHKitConfiguration</code> (transport fields) / <code>SSHKitHostKeyDiscoveryResult</code> / <code>+[SSHKitClient discoverHostKeyWithConfiguration:completion:]</code> (or <code>-[SSHKitConnection discoverHostKeyWithCompletion:]</code>)</td></tr>
+<tr><td><code>SSHLogLevel</code> / <code>SSHLogEvent</code> / <code>SSHLogRecorder</code></td><td><code>SSHKitLogLevel</code> / <code>SSHKitLogEvent</code> / <code>SSHKitLogRecorder</code></td></tr>
+<tr><td><code>SSHKitError</code> / <code>SSHKitErrorCode</code></td><td><code>NSError</code> in <code>SSHKitErrorDomain</code> / <code>SSHKitErrorCode</code></td></tr>
+<tr><td><code>SSHGeneratedKeyPair</code> / <code>SSHKeyGenerator</code> / <code>SSHKeyGenerationType</code></td><td><code>SSHKitGeneratedKeyPair</code> / <code>SSHKitKeyGenerationType</code></td></tr>
+<tr><td><code>SSHAlgorithmProfile</code> (inspection)</td><td><code>SSHKitAlgorithmInspector</code></td></tr>
+</tbody>
+</table>
+
+<h2 id="objc-only">Obj-C-only surface</h2>
+<p>One method has no direct Swift counterpart:</p>
+<ul>
+<li><strong><code>-[SSHKitConnection executePTYCommand:completion:]</code></strong> &mdash; runs a collected command through a PTY-backed channel and returns an <code>SSHKitCommandResult</code> the same way <code>executeCommand:completion:</code> does. Use it for commands that detect a TTY (<code>sudo</code> without <code>-n</code>, interactive prompts, programs that gate their output on isatty). Swift callers needing the same behavior can fall through to the Obj-C façade directly, or open a streamed channel via <code>openShell</code> for fully interactive use.</li>
+</ul>
+
+<h2 id="swift-only">Swift-only surface</h2>
+<p>These are Swift conveniences with no direct Obj-C counterpart:</p>
+<ul>
+<li><strong>SCP helpers</strong> &mdash; <code>uploadFileWithSCP</code> / <code>downloadFileWithSCP</code> live as a <code>public extension SSHConnection</code> built on top of streamed commands. Obj-C callers can re-implement the SCP protocol on top of <code>SSHKitCommand</code> if needed.</li>
+<li><strong>Keychain credential store</strong> &mdash; <code>SSHKeychainCredentialStore</code> persists passwords and private keys keyed by account.</li>
+<li><strong>Key generation</strong> &mdash; <code>SSHKeyGenerator</code> is a Swift wrapper. Obj-C callers can call <code>SSHKitGeneratedKeyPair</code> directly with its <code>SSHKitKeyGenerationType</code> enum.</li>
+<li><strong>Algorithm profile struct</strong> &mdash; <code>SSHAlgorithmProfile</code> is Swift; the Obj-C side exposes raw fields on <code>SSHKitConfiguration</code> and <code>+SSHKitAlgorithmInspector inspectAlgorithmsWith…</code> for resolved snapshots.</li>
+<li><strong>Latency probe</strong> &mdash; <code>SSHPortLatencyProbe.measure(...)</code> is Swift-only.</li>
+</ul>
+
+<footer>
+SSHKit · <a href="https://github.com/Lakr233/SSHKit">github.com/Lakr233/SSHKit</a>
+</footer>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/highlight.min.js"
+        integrity="sha384-GdEWAbCjn+ghjX0gLx7/N1hyTVmPAjdC2OvoAA0RyNcAOhqwtT8qnbCxWle2+uJX"
+        crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/languages/swift.min.js"
+        integrity="sha384-TfALNLT6HJzZieazgsVvFM0DzFWQsgl0d7mdwPLyg1yg7XE4QwLY4jqmJRNnI1S4"
+        crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/languages/objectivec.min.js"
+        integrity="sha384-evxKJTmk5AChNAzYM6uh+DVNAm7QCNu2x/OynLEpbH+h/TVMellCIci2K+uvXWID"
+        crossorigin="anonymous"></script>
+<script>hljs.highlightAll();</script>
+</body>
+</html>

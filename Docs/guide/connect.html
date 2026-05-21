@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>SSHKit · Connect</title>
+<link rel="stylesheet" href="../styles.css">
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github.min.css"
+      integrity="sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L"
+      crossorigin="anonymous"
+      media="(prefers-color-scheme: light)">
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github-dark.min.css"
+      integrity="sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH"
+      crossorigin="anonymous"
+      media="(prefers-color-scheme: dark)">
+</head>
+<body>
+<nav class="topbar" aria-label="Primary">
+  <a class="home" href="../index.html">SSHKit</a>
+  <a href="../index.html">Overview</a>
+  <a href="index.html" aria-current="page">Guide</a>
+  <a href="../api/index.html">API</a>
+  <a href="../architecture.html">Architecture</a>
+  <a href="../objc.html">Obj-C</a>
+</nav>
+
+<main>
+<h1>Connect</h1>
+<nav class="on-this-page" aria-label="On this page">
+  <strong>On this page:</strong>
+  <a href="#scoped">Scoped</a>
+  <a href="#manual">Manual</a>
+  <a href="#cancellation">Cancellation</a>
+</nav>
+
+<p>SSHKit has two entry points; both return an <code>SSHConnection</code>. Prefer the scoped variant &mdash; it closes the connection on both the success and failure paths and is the safest default.</p>
+
+<h2 id="scoped">Scoped (recommended)</h2>
+<pre><code class="language-swift">import SSHKit
+
+let configuration = SSHClient.Configuration(
+    host: "example.com",
+    username: "deploy",
+    authentication: .password("secret"),
+    hostKeyPolicy: .knownHostsFile(
+        ("~/.ssh/known_hosts" as NSString).expandingTildeInPath
+    )
+)
+
+let result = try await SSHClient.withConnection(configuration) { connection in
+    try await connection.execute("uptime")
+}
+print(String(data: result.standardOutput, encoding: .utf8) ?? "")
+</code></pre>
+
+<h2 id="manual">Manual ownership</h2>
+<p>If you need to keep a connection beyond a single block (long-lived shell, an SFTP session shared with multiple progress updates, etc.), open it manually and close it explicitly. Use <code>do</code>/<code>catch</code> for cleanup &mdash; do not silently discard <code>close()</code> errors.</p>
+<pre><code class="language-swift">let connection = try await SSHClient.connect(configuration: configuration)
+do {
+    try await doWorkWith(connection)
+    try await connection.close()
+} catch {
+    do { try await connection.close() } catch let closeError {
+        logger.warning("close after failure failed: \(closeError)")
+    }
+    throw error
+}
+</code></pre>
+<p>Open one <code>SSHConnection</code> per concurrent job: SFTP, shell, and a tunnel running together need three connections. See <a href="../architecture.html#ownership">ownership invariants</a>.</p>
+
+<h2 id="cancellation">Cancellation</h2>
+<p>Cancelling the surrounding <code>Task</code> tears the connection down: SSHKit calls <code>shutdown(fd, SHUT_RDWR)</code> on the owned socket, the blocked libssh call wakes up, and the worker queue cleans up. The connection is gone &mdash; open a fresh <code>SSHConnection</code> for the next attempt.</p>
+<pre><code class="language-swift">let task = Task {
+    try await SSHClient.withConnection(configuration) { connection in
+        try await connection.execute("sleep 30")
+    }
+}
+task.cancel() // shuts the socket down, withConnection throws SSHKitError(.cancelled)
+</code></pre>
+
+<nav class="pager" aria-label="Sibling pages">
+  <a class="prev" href="index.html">Guide</a>
+  <a class="parent" href="index.html">↑ Guide</a>
+  <a class="next" href="authentication.html">Authentication</a>
+</nav>
+
+<footer>
+SSHKit · <a href="https://github.com/Lakr233/SSHKit">github.com/Lakr233/SSHKit</a>
+</footer>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/highlight.min.js"
+        integrity="sha384-GdEWAbCjn+ghjX0gLx7/N1hyTVmPAjdC2OvoAA0RyNcAOhqwtT8qnbCxWle2+uJX"
+        crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/languages/swift.min.js"
+        integrity="sha384-TfALNLT6HJzZieazgsVvFM0DzFWQsgl0d7mdwPLyg1yg7XE4QwLY4jqmJRNnI1S4"
+        crossorigin="anonymous"></script>
+<script>hljs.highlightAll();</script>
+</body>
+</html>

@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>SSHKit · PTY shell</title>
+<link rel="stylesheet" href="../styles.css">
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github.min.css"
+      integrity="sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L"
+      crossorigin="anonymous"
+      media="(prefers-color-scheme: light)">
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github-dark.min.css"
+      integrity="sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH"
+      crossorigin="anonymous"
+      media="(prefers-color-scheme: dark)">
+</head>
+<body>
+<nav class="topbar" aria-label="Primary">
+  <a class="home" href="../index.html">SSHKit</a>
+  <a href="../index.html">Overview</a>
+  <a href="index.html" aria-current="page">Guide</a>
+  <a href="../api/index.html">API</a>
+  <a href="../architecture.html">Architecture</a>
+  <a href="../objc.html">Obj-C</a>
+</nav>
+
+<main>
+<h1>PTY shell</h1>
+<nav class="on-this-page" aria-label="On this page">
+  <strong>On this page:</strong>
+  <a href="#open">Open</a>
+  <a href="#resize">Resize</a>
+  <a href="#events">Events</a>
+  <a href="#pty-modes">PTY modes</a>
+</nav>
+
+<h2 id="open">Open</h2>
+<pre><code class="language-swift">let shell = try await connection.openShell(
+    terminalType: "xterm-256color",
+    columns: 120,
+    rows: 32
+) { event in
+    if case .standardOutput(let data) = event {
+        FileHandle.standardOutput.write(data)
+    }
+}
+
+try await shell.write("ls -la\n")
+try await shell.write(Data([0x03]))   // Ctrl-C
+try await shell.close()
+</code></pre>
+<p>The event handler runs off the worker queue; do your own dispatch if you need to mutate UI state.</p>
+
+<h2 id="resize">Resize</h2>
+<pre><code class="language-swift">try await shell.resize(columns: 200, rows: 50)
+</code></pre>
+<p>Resizing emits <code>SIGWINCH</code> on the remote PTY. Resize early and often if you have a terminal view that the user can drag.</p>
+
+<h2 id="events">Events</h2>
+<p><code>SSHShellEvent</code> has three cases:</p>
+<ul>
+<li><code>.standardOutput(Data)</code> &mdash; bytes from the PTY (merged stdout + stderr).</li>
+<li><code>.standardError(Data)</code> &mdash; reserved for non-PTY shell backends; PTY shells merge stderr into stdout.</li>
+<li><code>.closed(Int32)</code> &mdash; channel exit status. The event handler will not be invoked again after this.</li>
+</ul>
+
+<h2 id="pty-modes">PTY modes</h2>
+<p><code>openShell</code> requests a PTY from the remote with a fixed, conservative mode set. The current public API exposes the terminal type and dimensions; the line discipline itself is not configurable. SSHKit picks values that match what an interactive OpenSSH client would request, so you get the same behavior most users (and most remote shells) already expect.</p>
+
+<h3>What is on</h3>
+<ul>
+<li><strong>Echo</strong> &mdash; the remote echoes typed characters back (<code>ECHO</code>, <code>ECHOE</code>, <code>ECHOK</code>, <code>ECHOCTL</code>, <code>ECHOKE</code>). <code>ECHONL</code> is off. Sensitive prompts (password, sudo) still suppress echo on the remote side as usual; that is the remote app&rsquo;s call, not SSHKit&rsquo;s.</li>
+<li><strong>Canonical input</strong> (<code>ICANON</code>) &mdash; the remote line discipline buffers a line and lets the user edit it before delivery. Combined with the standard control characters: <code>VINTR=^C</code>, <code>VQUIT=^\\</code>, <code>VERASE=DEL</code>, <code>VKILL=^U</code>, <code>VEOF=^D</code>, <code>VSUSP=^Z</code>, <code>VREPRINT=^R</code>, <code>VWERASE=^W</code>, <code>VLNEXT=^V</code>, <code>VDISCARD=^O</code>.</li>
+<li><strong>Signals</strong> (<code>ISIG</code>) &mdash; <code>^C</code> and friends generate signals on the remote rather than being delivered as bytes.</li>
+<li><strong>Software flow control</strong> (<code>IXON</code>, <code>VSTART=^Q</code>, <code>VSTOP=^S</code>) &mdash; <code>^S</code> pauses output, <code>^Q</code> resumes it.</li>
+<li><strong>CR/LF translation</strong> (<code>ICRNL</code>, <code>ONLCR</code>, <code>OPOST</code>) &mdash; CR on input becomes NL, NL on output becomes CRLF. <code>INLCR</code> and <code>IGNCR</code> are off.</li>
+<li><strong>UTF-8 input</strong> (<code>IUTF8</code>) &mdash; the line editor counts multibyte characters as one column.</li>
+<li><strong>Extended functions</strong> (<code>IEXTEN</code>).</li>
+<li><strong>Reported baud</strong> &mdash; <code>ISPEED</code> and <code>OSPEED</code> are reported as 38400.</li>
+</ul>
+
+<h3>Implications</h3>
+<ul>
+<li>If you wire <code>SSHShell</code> to a terminal view, do <em>not</em> echo the local keystrokes yourself &mdash; you would get double characters. The remote does the echo.</li>
+<li>SSHKit doesn&rsquo;t handle local line editing for you. Backspace, Ctrl-U, Ctrl-W, etc. are all interpreted on the remote side because canonical mode is on.</li>
+<li>For a raw / non-canonical session (full-screen editors, ssh-into-a-program that wants every byte), let the remote app put the TTY into raw mode the way it normally does; for example a remote shell can switch with <code>stty raw -echo</code>, and full-screen programs like <code>vim</code> and <code>tmux</code> set raw mode themselves. SSHKit does not currently expose a per-call override.</li>
+<li>Resizing through <code>resize(columns:rows:)</code> changes the reported window size only &mdash; it does not change any of the modes above.</li>
+</ul>
+
+<nav class="pager" aria-label="Sibling pages">
+  <a class="prev" href="commands.html">Commands</a>
+  <a class="parent" href="index.html">↑ Guide</a>
+  <a class="next" href="sftp.html">SFTP</a>
+</nav>
+
+<footer>
+SSHKit · <a href="https://github.com/Lakr233/SSHKit">github.com/Lakr233/SSHKit</a>
+</footer>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/highlight.min.js"
+        integrity="sha384-GdEWAbCjn+ghjX0gLx7/N1hyTVmPAjdC2OvoAA0RyNcAOhqwtT8qnbCxWle2+uJX"
+        crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/languages/swift.min.js"
+        integrity="sha384-TfALNLT6HJzZieazgsVvFM0DzFWQsgl0d7mdwPLyg1yg7XE4QwLY4jqmJRNnI1S4"
+        crossorigin="anonymous"></script>
+<script>hljs.highlightAll();</script>
+</body>
+</html>

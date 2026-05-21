@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>SSHKit · Authentication</title>
+<link rel="stylesheet" href="../styles.css">
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github.min.css"
+      integrity="sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L"
+      crossorigin="anonymous"
+      media="(prefers-color-scheme: light)">
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github-dark.min.css"
+      integrity="sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH"
+      crossorigin="anonymous"
+      media="(prefers-color-scheme: dark)">
+</head>
+<body>
+<nav class="topbar" aria-label="Primary">
+  <a class="home" href="../index.html">SSHKit</a>
+  <a href="../index.html">Overview</a>
+  <a href="index.html" aria-current="page">Guide</a>
+  <a href="../api/index.html">API</a>
+  <a href="../architecture.html">Architecture</a>
+  <a href="../objc.html">Obj-C</a>
+</nav>
+
+<main>
+<h1>Authentication</h1>
+<nav class="on-this-page" aria-label="On this page">
+  <strong>On this page:</strong>
+  <a href="#password">Password</a>
+  <a href="#private-key">Private key</a>
+  <a href="#keyboard-interactive">Keyboard-interactive</a>
+  <a href="#agent">SSH agent</a>
+  <a href="#discovery">Discovery</a>
+  <a href="#keygen">Generate deploy keys</a>
+</nav>
+
+<p><code>SSHAuthentication</code> is the auth method picker. Each case is constructed with the inputs it needs.</p>
+
+<h2 id="password">Password</h2>
+<pre><code class="language-swift">let auth: SSHAuthentication = .password("hunter2")
+</code></pre>
+
+<h2 id="private-key">Private key file</h2>
+<pre><code class="language-swift">let auth: SSHAuthentication = .privateKeyFile(
+    path: ("~/.ssh/id_ed25519" as NSString).expandingTildeInPath,
+    passphrase: nil
+)
+</code></pre>
+<p>Pass an OpenSSH PEM path. If the key is encrypted, supply the passphrase; otherwise pass <code>nil</code> (the default).</p>
+
+<h2 id="keyboard-interactive">Keyboard-interactive</h2>
+<pre><code class="language-swift">let auth: SSHAuthentication = .keyboardInteractive { name, instruction, prompts in
+    // Return one response per prompt, in order.
+    // `echo == false` indicates a sensitive input that should not be shown.
+    prompts.map { prompt in
+        prompt.echo ? "deploy" : "<one-time-password>"
+    }
+}
+</code></pre>
+<p>The responder is <code>@Sendable</code> and runs off the worker queue when the server issues a challenge.</p>
+
+<h2 id="agent">SSH agent</h2>
+<pre><code class="language-swift">// Default agent (SSH_AUTH_SOCK):
+let auth: SSHAuthentication = .agent()
+
+// Pin a specific agent socket:
+let pinned: SSHAuthentication = .agent(SSHAgentConfiguration(socketPath: "/tmp/agent.sock"))
+</code></pre>
+
+<h2 id="discovery">Discovery</h2>
+<p>Some flows want to ask the server which methods it accepts before attempting credentials. <code>SSHClient.discoverAuthenticationMethods</code> performs the auth banner exchange without authenticating.</p>
+<pre><code class="language-swift">let discovery = try await SSHClient.discoverAuthenticationMethods(
+    configuration: configuration
+)
+if discovery.methods.contains(.publicKey) {
+    // route to private-key auth
+}
+print(discovery.issueBanner ?? "")
+</code></pre>
+
+<h2 id="keygen">Generate deploy keys</h2>
+<p><code>SSHKeyGenerator</code> emits OpenSSH-format key pairs without shelling out.</p>
+<pre><code class="language-swift">let pair = try SSHKeyGenerator.generateOpenSSHKeyPair(
+    type: .ed25519,
+    comment: "deploy@laptop",
+    passphrase: nil
+)
+print(pair.authorizedKey)     // append to ~/.ssh/authorized_keys on the server
+print(pair.privateKeyOpenSSH) // store securely (e.g. in SSHKeychainCredentialStore)
+</code></pre>
+<p>Available types: <code>.ed25519</code>, <code>.rsa(bits:)</code> (default 3072), <code>.ecdsaP256</code>, <code>.ecdsaP384</code>, <code>.ecdsaP521</code>.</p>
+
+<nav class="pager" aria-label="Sibling pages">
+  <a class="prev" href="connect.html">Connect</a>
+  <a class="parent" href="index.html">↑ Guide</a>
+  <a class="next" href="host-trust.html">Host trust</a>
+</nav>
+
+<footer>
+SSHKit · <a href="https://github.com/Lakr233/SSHKit">github.com/Lakr233/SSHKit</a>
+</footer>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/highlight.min.js"
+        integrity="sha384-GdEWAbCjn+ghjX0gLx7/N1hyTVmPAjdC2OvoAA0RyNcAOhqwtT8qnbCxWle2+uJX"
+        crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/languages/swift.min.js"
+        integrity="sha384-TfALNLT6HJzZieazgsVvFM0DzFWQsgl0d7mdwPLyg1yg7XE4QwLY4jqmJRNnI1S4"
+        crossorigin="anonymous"></script>
+<script>hljs.highlightAll();</script>
+</body>
+</html>

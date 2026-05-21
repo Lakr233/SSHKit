@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>SSHKit · Commands</title>
+<link rel="stylesheet" href="../styles.css">
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github.min.css"
+      integrity="sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L"
+      crossorigin="anonymous"
+      media="(prefers-color-scheme: light)">
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github-dark.min.css"
+      integrity="sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH"
+      crossorigin="anonymous"
+      media="(prefers-color-scheme: dark)">
+</head>
+<body>
+<nav class="topbar" aria-label="Primary">
+  <a class="home" href="../index.html">SSHKit</a>
+  <a href="../index.html">Overview</a>
+  <a href="index.html" aria-current="page">Guide</a>
+  <a href="../api/index.html">API</a>
+  <a href="../architecture.html">Architecture</a>
+  <a href="../objc.html">Obj-C</a>
+</nav>
+
+<main>
+<h1>Commands</h1>
+<nav class="on-this-page" aria-label="On this page">
+  <strong>On this page:</strong>
+  <a href="#collected">Collected</a>
+  <a href="#streamed">Streamed</a>
+  <a href="#exit-status">Exit status &amp; signals</a>
+</nav>
+
+<p>SSHKit has two ways to run a remote command.</p>
+
+<h2 id="collected">Collected (batch)</h2>
+<p>Use <code>execute</code> when the command will produce a bounded amount of output and you want it all together.</p>
+<pre><code class="language-swift">let result = try await connection.execute("uname -a")
+let stdout = String(data: result.standardOutput, encoding: .utf8) ?? ""
+print(stdout)
+print("exit:", result.exitStatus)
+</code></pre>
+<p><code>SSHCommandResult</code> has <code>standardOutput</code>, <code>standardError</code>, <code>exitStatus</code>, and an optional <code>exitSignal</code>. Non-zero exit is <em>not</em> thrown &mdash; inspect <code>exitStatus</code> after the call.</p>
+
+<h2 id="streamed">Streamed</h2>
+<p>Use <code>openCommand</code> when you need to consume output as it arrives or write to the command&rsquo;s stdin.</p>
+<pre><code class="language-swift">let command = try await connection.openCommand("tail -F /var/log/app.log")
+
+for await event in command.events {
+    switch event {
+    case .standardOutput(let data):
+        if let text = String(data: data, encoding: .utf8) {
+            print(text, terminator: "")
+        }
+    case .standardError:
+        break // PTY-backed channels can emit this
+    case .closed(let status, let signal):
+        print("closed status=\(status) signal=\(signal ?? "-")")
+        return
+    }
+}
+</code></pre>
+<p><code>command.events</code> is an <code>AsyncStream&lt;SSHCommandEvent&gt;</code> that finishes when the channel closes. You can write to stdin while the stream is live (<code>command.write(...)</code>) and call <code>command.sendEOF()</code> or <code>command.close()</code> when done.</p>
+
+<h2 id="exit-status">Exit status &amp; signals</h2>
+<p>The <code>.closed</code> event carries both an <code>Int32</code> exit status and an optional <code>exitSignal</code> string. The two are mutually exclusive at the wire level:</p>
+<ul>
+<li>If the server reports a normal exit, <code>exitSignal</code> is <code>nil</code> and <code>exitStatus</code> reflects the process return value.</li>
+<li>If the server reports a signal termination (e.g. <code>TERM</code>, <code>KILL</code>), <code>exitSignal</code> is set and <code>exitStatus</code> is usually zero.</li>
+</ul>
+
+<nav class="pager" aria-label="Sibling pages">
+  <a class="prev" href="host-trust.html">Host trust</a>
+  <a class="parent" href="index.html">↑ Guide</a>
+  <a class="next" href="shell.html">PTY shell</a>
+</nav>
+
+<footer>
+SSHKit · <a href="https://github.com/Lakr233/SSHKit">github.com/Lakr233/SSHKit</a>
+</footer>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/highlight.min.js"
+        integrity="sha384-GdEWAbCjn+ghjX0gLx7/N1hyTVmPAjdC2OvoAA0RyNcAOhqwtT8qnbCxWle2+uJX"
+        crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/languages/swift.min.js"
+        integrity="sha384-TfALNLT6HJzZieazgsVvFM0DzFWQsgl0d7mdwPLyg1yg7XE4QwLY4jqmJRNnI1S4"
+        crossorigin="anonymous"></script>
+<script>hljs.highlightAll();</script>
+</body>
+</html>

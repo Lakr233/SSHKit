@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>SSHKit · SFTP</title>
+<link rel="stylesheet" href="../styles.css">
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github.min.css"
+      integrity="sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L"
+      crossorigin="anonymous"
+      media="(prefers-color-scheme: light)">
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github-dark.min.css"
+      integrity="sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH"
+      crossorigin="anonymous"
+      media="(prefers-color-scheme: dark)">
+</head>
+<body>
+<nav class="topbar" aria-label="Primary">
+  <a class="home" href="../index.html">SSHKit</a>
+  <a href="../index.html">Overview</a>
+  <a href="index.html" aria-current="page">Guide</a>
+  <a href="../api/index.html">API</a>
+  <a href="../architecture.html">Architecture</a>
+  <a href="../objc.html">Obj-C</a>
+</nav>
+
+<main>
+<h1>SFTP</h1>
+<nav class="on-this-page" aria-label="On this page">
+  <strong>On this page:</strong>
+  <a href="#open">Open</a>
+  <a href="#listing">Listing &amp; stat</a>
+  <a href="#whole-file">Whole-file I/O</a>
+  <a href="#file-handle">File handles</a>
+  <a href="#tree">Directories &amp; symlinks</a>
+  <a href="#transfer">Transfers</a>
+  <a href="#resume">Resumable transfers</a>
+</nav>
+
+<h2 id="open">Open</h2>
+<p>An <code>SFTPClient</code> is opened on a dedicated <code>SSHConnection</code>. While the client is alive that connection is the SFTP subsystem &mdash; no other high-level job can run on it.</p>
+<pre><code class="language-swift">let connection = try await SSHClient.connect(configuration: configuration)
+let sftp = try await connection.openSFTP()
+defer { Task { try? await sftp.close() } }
+</code></pre>
+
+<h2 id="listing">Listing &amp; stat</h2>
+<pre><code class="language-swift">for entry in try await sftp.listDirectory("/var/log") {
+    print(entry.filename, entry.attributes?.size ?? 0)
+}
+
+let attributes = try await sftp.stat("/etc/hosts")
+print(attributes.size, attributes.permissions, attributes.modifiedAt as Any)
+
+let resolved = try await sftp.realpath("./relative/path")
+print(resolved)
+</code></pre>
+
+<h2 id="whole-file">Whole-file I/O</h2>
+<pre><code class="language-swift">let data = try await sftp.readFile("/etc/hostname")
+try await sftp.writeFile(Data("hello\n".utf8), to: "/tmp/hello.txt")
+try await sftp.setPermissions(0o644, at: "/tmp/hello.txt")
+</code></pre>
+
+<h2 id="file-handle">File handles</h2>
+<p>For chunked I/O or seeking, open a handle.</p>
+<pre><code class="language-swift">let handle = try await sftp.openFile(
+    "/tmp/big.bin",
+    flags: [.read],
+    permissions: 0o600
+)
+defer { Task { try? await handle.close() } }
+
+while true {
+    let chunk = try await handle.readData(maximumLength: 64 * 1024)
+    if chunk.isEmpty { break }
+    // process chunk
+}
+</code></pre>
+<p>Flags are an option set: <code>.read</code>, <code>.write</code>, <code>.create</code>, <code>.truncate</code>, <code>.append</code>. Combine them as needed (<code>[.write, .create, .truncate]</code>).</p>
+
+<h2 id="tree">Directories &amp; symlinks</h2>
+<pre><code class="language-swift">try await sftp.createDirectory("/tmp/staging", permissions: 0o755)
+try await sftp.removeDirectory("/tmp/staging")
+try await sftp.removeFile("/tmp/old.zip")
+try await sftp.rename("/tmp/new.zip", to: "/tmp/old.zip")
+try await sftp.createSymbolicLink("/tmp/link", targetPath: "/srv/payload")
+let target = try await sftp.readLink("/tmp/link")
+</code></pre>
+
+<h2 id="transfer">Transfers</h2>
+<pre><code class="language-swift">try await sftp.upload(
+    localURL: URL(fileURLWithPath: "/Users/me/release.zip"),
+    to: "/srv/release.zip"
+) { sent, total in
+    print("\(sent) / \(total)")
+}
+
+try await sftp.download(
+    remotePath: "/srv/release.zip",
+    to: URL(fileURLWithPath: "/Users/me/release.zip")
+)
+</code></pre>
+<p>Progress callbacks deliver <code>(completedBytes, totalBytes)</code>. <code>totalBytes</code> is the source size (local for uploads, remote for downloads).</p>
+
+<h2 id="resume">Resumable transfers</h2>
+<p><code>resumeUpload</code> and <code>resumeDownload</code> continue where a previous attempt stopped:</p>
+<ul>
+<li><strong>resumeUpload</strong> reads the <em>remote</em> file&rsquo;s current size from the server, seeks both sides to that offset, and writes the rest of the local file. It fails if the remote file is larger than the local one.</li>
+<li><strong>resumeDownload</strong> reads the <em>local</em> file&rsquo;s current size, seeks the remote file to that offset, and appends to the local file with <code>O_APPEND</code>. It fails if the local file is larger than the remote one.</li>
+</ul>
+<pre><code class="language-swift">try await sftp.resumeUpload(
+    localURL: URL(fileURLWithPath: "/Users/me/release.zip"),
+    to: "/srv/release.zip"
+)
+try await sftp.resumeDownload(
+    remotePath: "/srv/release.zip",
+    to: URL(fileURLWithPath: "/Users/me/release.zip")
+)
+</code></pre>
+<p>Task cancellation tears the underlying connection down &mdash; any pending operations on the same <code>SFTPClient</code> fail with <code>SSHKitError(.cancelled)</code> and the client is unusable afterwards.</p>
+
+<nav class="pager" aria-label="Sibling pages">
+  <a class="prev" href="shell.html">PTY shell</a>
+  <a class="parent" href="index.html">↑ Guide</a>
+  <a class="next" href="scp.html">SCP</a>
+</nav>
+
+<footer>
+SSHKit · <a href="https://github.com/Lakr233/SSHKit">github.com/Lakr233/SSHKit</a>
+</footer>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/highlight.min.js"
+        integrity="sha384-GdEWAbCjn+ghjX0gLx7/N1hyTVmPAjdC2OvoAA0RyNcAOhqwtT8qnbCxWle2+uJX"
+        crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/languages/swift.min.js"
+        integrity="sha384-TfALNLT6HJzZieazgsVvFM0DzFWQsgl0d7mdwPLyg1yg7XE4QwLY4jqmJRNnI1S4"
+        crossorigin="anonymous"></script>
+<script>hljs.highlightAll();</script>
+</body>
+</html>

@@ -125,7 +125,7 @@ final class ConnectionStore {
     }
 
     func denyEnrollment() {
-        activeSheet = nil
+        activeSheet = .setup
     }
 
     func disconnect() {

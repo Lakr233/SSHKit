@@ -2,7 +2,6 @@ import SwiftUI
 
 struct HostTrustEnrollmentView: View {
     @Environment(ConnectionStore.self) private var store
-    @Environment(\.dismiss) private var dismiss
 
     let pending: PendingEnrollment
 
@@ -11,7 +10,7 @@ struct HostTrustEnrollmentView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Label("Verify host key", systemImage: "key.fill")
                     .font(.title2.bold())
-                Text("First connect to \(pending.host):\(pending.port). Confirm the server fingerprint below before any credentials are sent.")
+                Text("First connect to \(pending.host):\(String(pending.port)). Confirm the server fingerprint below before any credentials are sent.")
                     .foregroundStyle(.secondary)
             }
             GroupBox("Server fingerprint") {
@@ -24,7 +23,6 @@ struct HostTrustEnrollmentView: View {
             HStack(spacing: 12) {
                 Button(role: .cancel) {
                     store.denyEnrollment()
-                    dismiss()
                 } label: {
                     Text("Deny")
                         .frame(maxWidth: .infinity)
@@ -32,7 +30,6 @@ struct HostTrustEnrollmentView: View {
                 .buttonStyle(.bordered)
                 Button {
                     store.approveEnrollment(pending)
-                    dismiss()
                 } label: {
                     Text("Trust & Connect")
                         .frame(maxWidth: .infinity)

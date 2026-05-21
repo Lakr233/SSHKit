@@ -153,9 +153,10 @@ final class AdvancedForwardLiveTests: LiveSSHTestCase {
 
     private func requireRemoteNetcat(on connection: SSHConnection) throws {
         let result = try execute("command -v nc >/dev/null 2>&1", on: connection)
-        guard result.exitStatus == 0 else {
-            throw XCTSkip("Remote forward live test requires netcat on the fixture host.")
-        }
+        try requireLiveFixtureCapability(
+            result.exitStatus == 0,
+            "Remote forward live test requires netcat on the fixture host.",
+        )
     }
 
     private func readBannerThroughSOCKS(
@@ -180,7 +181,7 @@ final class AdvancedForwardLiveTests: LiveSSHTestCase {
         try connectSOCKS(socket: fileDescriptor, host: targetHost, port: targetPort)
         var buffer = [UInt8](repeating: 0, count: 512)
         let byteCount = Darwin.read(fileDescriptor, &buffer, buffer.count)
-        XCTAssertGreaterThan(byteCount, 0)
+        try requirePositiveRead(byteCount)
         return String(decoding: buffer.prefix(byteCount), as: UTF8.self)
     }
 
@@ -339,6 +340,15 @@ final class AdvancedForwardLiveTests: LiveSSHTestCase {
             data.append(contentsOf: buffer.prefix(count))
         }
         return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    private func requirePositiveRead(_ byteCount: Int) throws {
+        if byteCount < 0 {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSLocalizedDescriptionKey: String(cString: strerror(errno))])
+        }
+        if byteCount == 0 {
+            throw NSError(domain: NSPOSIXErrorDomain, code: 0, userInfo: [NSLocalizedDescriptionKey: "Unexpected EOF while reading fixture banner."])
+        }
     }
 }
 

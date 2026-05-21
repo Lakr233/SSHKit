@@ -9,6 +9,15 @@ class LiveSSHTestCase: XCTestCase {
         }
     }
 
+    func requireLiveFixtureCapability(
+        _ condition: Bool,
+        _ message: String,
+    ) throws {
+        guard condition else {
+            throw LiveSSHFixtureError.missingCapability(message)
+        }
+    }
+
     func connect(
         authentication: SSHAuthentication,
         fixture: AlpineSSHFixture,
@@ -50,7 +59,16 @@ class LiveSSHTestCase: XCTestCase {
 
     func assertSmokeCommandResult(_ result: SSHCommandResult) {
         XCTAssertEqual(result.exitStatus, 0)
-        XCTAssertEqual(String(data: result.standardOutput, encoding: .utf8), "root\n3.21.7\n")
+        let standardOutput = String(data: result.standardOutput, encoding: .utf8) ?? ""
+        let outputLines = standardOutput
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+            .filter { $0.isEmpty == false }
+        XCTAssertEqual(outputLines.first, "root")
+        XCTAssertTrue(
+            outputLines.dropFirst().first?.range(of: #"^\d+\.\d+(\.\d+)?$"#, options: .regularExpression) != nil,
+            "Expected Alpine release output, received: \(standardOutput)",
+        )
         let standardError = String(data: result.standardError, encoding: .utf8) ?? ""
         XCTAssertFalse(standardError.localizedCaseInsensitiveContains("permission denied"))
         XCTAssertFalse(standardError.localizedCaseInsensitiveContains("verification failed"))
@@ -388,6 +406,17 @@ class LiveSSHTestCase: XCTestCase {
     }
 }
 
+func requireExternalFixtureHost(_ host: String) throws {
+    let normalizedHost = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
+    let localHosts = ["localhost", "ip6-localhost", "::1", "0:0:0:0:0:0:0:1", "0.0.0.0"]
+    guard localHosts.contains(normalizedHost) == false,
+          normalizedHost.hasPrefix("127.") == false,
+          normalizedHost.hasPrefix("::ffff:127.") == false
+    else {
+        throw LiveSSHFixtureError.localHost(host)
+    }
+}
+
 struct AlpineSSHFixture {
     var host: String
     var port: UInt16
@@ -398,7 +427,7 @@ struct AlpineSSHFixture {
 
     init() throws {
         host = try Self.requiredEnvironmentValue("SSHKIT_LIVE_HOST")
-        try Self.requireRemoteFixtureHost(host)
+        try requireExternalFixtureHost(host)
         port = try UInt16(Self.requiredEnvironmentValue("SSHKIT_LIVE_PORT")).unwrap("SSHKIT_LIVE_PORT must be a valid UInt16.")
         username = try Self.requiredEnvironmentValue("SSHKIT_LIVE_USERNAME")
         password = try Self.requiredEnvironmentValue("SSHKIT_LIVE_PASSWORD")
@@ -408,30 +437,52 @@ struct AlpineSSHFixture {
 
     private static func requiredEnvironmentValue(_ name: String) throws -> String {
         guard let value = ProcessInfo.processInfo.environment[name], value.isEmpty == false else {
-            throw XCTSkip("Missing required live SSH test environment value: \(name)")
+            throw LiveSSHFixtureError.missingEnvironment(name)
         }
         return value
     }
+}
 
-    private static func requireRemoteFixtureHost(_ host: String) throws {
-        let normalizedHost = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
-        let localHosts = ["localhost", "ip6-localhost", "::1", "0:0:0:0:0:0:0:1", "0.0.0.0"]
-        guard localHosts.contains(normalizedHost) == false,
-              normalizedHost.hasPrefix("127.") == false,
-              normalizedHost.hasPrefix("::ffff:127.") == false
-        else {
-            throw LiveSSHFixtureError.localHost(host)
+struct DropbearSSHFixture {
+    var host: String
+    var port: UInt16
+    var username: String
+    var password: String
+    var knownHostsEntry: String
+
+    init() throws {
+        host = try Self.requiredEnvironmentValue("SSHKIT_DROPBEAR_HOST")
+        try requireExternalFixtureHost(host)
+        port = try UInt16(Self.requiredEnvironmentValue("SSHKIT_DROPBEAR_PORT")).unwrap("SSHKIT_DROPBEAR_PORT must be a valid UInt16.")
+        username = try Self.requiredEnvironmentValue("SSHKIT_DROPBEAR_USERNAME")
+        password = try Self.requiredEnvironmentValue("SSHKIT_DROPBEAR_PASSWORD")
+        knownHostsEntry = try Self.requiredEnvironmentValue("SSHKIT_DROPBEAR_KNOWN_HOSTS")
+    }
+
+    private static func requiredEnvironmentValue(_ name: String) throws -> String {
+        guard let value = ProcessInfo.processInfo.environment[name], value.isEmpty == false else {
+            throw LiveSSHFixtureError.missingEnvironment(name)
         }
+        return value
     }
 }
 
 enum LiveSSHFixtureError: Error, CustomStringConvertible {
     case localHost(String)
+    case missingCapability(String)
+    case missingEnvironment(String)
+    case invalidEnvironment(String)
 
     var description: String {
         switch self {
         case let .localHost(host):
             "Live SSH fixture host must be a remote fixture host; received local host '\(host)'."
+        case let .missingCapability(message):
+            message
+        case let .missingEnvironment(name):
+            "Missing required live SSH test environment value: \(name)."
+        case let .invalidEnvironment(message):
+            message
         }
     }
 }
@@ -528,7 +579,7 @@ final class AsyncCommandEventResultBox: @unchecked Sendable {
 extension Optional {
     func unwrap(_ message: String) throws -> Wrapped {
         guard let wrapped = self else {
-            throw XCTSkip(message)
+            throw LiveSSHFixtureError.invalidEnvironment(message)
         }
         return wrapped
     }

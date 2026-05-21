@@ -9,6 +9,16 @@ required_variables=(
   SSHKIT_LIVE_PASSWORD
   SSHKIT_LIVE_KNOWN_HOSTS
   SSHKIT_LIVE_PRIVATE_KEY
+  SSHKIT_LEGACY_RSA_HOST
+  SSHKIT_LEGACY_RSA_PORT
+  SSHKIT_LEGACY_RSA_USERNAME
+  SSHKIT_LEGACY_RSA_PASSWORD
+  SSHKIT_LEGACY_RSA_KNOWN_HOSTS
+  SSHKIT_DROPBEAR_HOST
+  SSHKIT_DROPBEAR_PORT
+  SSHKIT_DROPBEAR_USERNAME
+  SSHKIT_DROPBEAR_PASSWORD
+  SSHKIT_DROPBEAR_KNOWN_HOSTS
 )
 
 missing_variables=()
@@ -28,15 +38,31 @@ if (( ${#missing_variables[@]} > 0 )); then
   exit 64
 fi
 
-fixture_host="$(printf '%s' "${SSHKIT_LIVE_HOST}" | tr '[:upper:]' '[:lower:]')"
-fixture_host="${fixture_host#[}"
-fixture_host="${fixture_host%]}"
+require_external_fixture_host() {
+  local variable_name="$1"
+  local host="${!variable_name}"
+  local normalized_host
+  normalized_host="$(printf '%s' "${host}" | tr '[:upper:]' '[:lower:]')"
+  normalized_host="${normalized_host#[}"
+  normalized_host="${normalized_host%]}"
 
-case "${fixture_host}" in
-  localhost|ip6-localhost|127.*|::1|0:0:0:0:0:0:0:1|::ffff:127.*|0.0.0.0)
-    printf 'SSHKIT_LIVE_HOST must point at the external fixture host: %s\n' "${SSHKIT_LIVE_HOST}" >&2
+  case "${normalized_host}" in
+    localhost|ip6-localhost|127.*|::1|0:0:0:0:0:0:0:1|::ffff:127.*|0.0.0.0)
+      printf '%s must point at an external fixture host: %s\n' "${variable_name}" "${host}" >&2
+      exit 64
+      ;;
+  esac
+}
+
+require_external_fixture_host SSHKIT_LIVE_HOST
+require_external_fixture_host SSHKIT_LEGACY_RSA_HOST
+require_external_fixture_host SSHKIT_DROPBEAR_HOST
+
+for tool in /usr/bin/ssh-agent /usr/bin/ssh-add; do
+  if [[ ! -x "${tool}" ]]; then
+    printf 'Missing required local tool for live agent tests: %s\n' "${tool}" >&2
     exit 64
-    ;;
-esac
+  fi
+done
 
 swift test --filter LiveSSHTests

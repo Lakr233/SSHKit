@@ -143,7 +143,7 @@ final class DirectTCPForwardLiveTests: LiveSSHTestCase {
                     }
                     var buffer = [UInt8](repeating: 0, count: 512)
                     let byteCount = Darwin.read(fileDescriptor, &buffer, buffer.count)
-                    XCTAssertGreaterThan(byteCount, 0)
+                    try requirePositiveRead(byteCount)
                     return String(decoding: buffer.prefix(byteCount), as: UTF8.self)
                 }
                 lastErrno = errno
@@ -153,5 +153,14 @@ final class DirectTCPForwardLiveTests: LiveSSHTestCase {
         }
 
         throw NSError(domain: NSPOSIXErrorDomain, code: Int(lastErrno), userInfo: [NSLocalizedDescriptionKey: String(cString: strerror(lastErrno))])
+    }
+
+    private func requirePositiveRead(_ byteCount: Int) throws {
+        if byteCount < 0 {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSLocalizedDescriptionKey: String(cString: strerror(errno))])
+        }
+        if byteCount == 0 {
+            throw NSError(domain: NSPOSIXErrorDomain, code: 0, userInfo: [NSLocalizedDescriptionKey: "Unexpected EOF while reading fixture banner."])
+        }
     }
 }

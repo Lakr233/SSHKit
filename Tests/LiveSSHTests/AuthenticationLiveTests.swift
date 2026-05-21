@@ -21,9 +21,10 @@ final class AuthenticationLiveTests: LiveSSHTestCase {
         let fixture = try AlpineSSHFixture()
         let knownHostsPath = try makeKnownHostsFile(fixture: fixture)
         let discovery = try discoverAuthenticationMethods(fixture: fixture, knownHostsPath: knownHostsPath)
-        guard discovery.methods.contains(.keyboardInteractive) else {
-            throw XCTSkip("Fixture SSH server does not advertise keyboard-interactive authentication.")
-        }
+        try requireLiveFixtureCapability(
+            discovery.methods.contains(.keyboardInteractive),
+            "Fixture SSH server must advertise keyboard-interactive authentication.",
+        )
 
         let connection = try connect(
             authentication: .keyboardInteractive { _, _, prompts in
@@ -195,18 +196,18 @@ private final class TemporarySSHAgent {
     private static func parseAgentPID(_ output: String) throws -> String {
         let marker = "SSH_AGENT_PID="
         guard let start = output.range(of: marker)?.upperBound else {
-            throw XCTSkip("ssh-agent did not report SSH_AGENT_PID.")
+            throw LiveSSHFixtureError.missingCapability("ssh-agent must report SSH_AGENT_PID.")
         }
         let suffix = output[start...]
         guard let end = suffix.firstIndex(where: { $0 == ";" || $0 == "\n" }) else {
-            throw XCTSkip("ssh-agent returned an unparseable SSH_AGENT_PID.")
+            throw LiveSSHFixtureError.missingCapability("ssh-agent must return a parseable SSH_AGENT_PID.")
         }
         return String(suffix[..<end])
     }
 
     private static func run(_ launchPath: String, arguments: [String], environment: [String: String]) throws -> String {
         guard FileManager.default.isExecutableFile(atPath: launchPath) else {
-            throw XCTSkip("\(launchPath) is required for SSH agent live tests.")
+            throw LiveSSHFixtureError.missingCapability("\(launchPath) is required for SSH agent live tests.")
         }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: launchPath)
@@ -223,7 +224,7 @@ private final class TemporarySSHAgent {
         let output = String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let error = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         guard process.terminationStatus == 0 else {
-            throw XCTSkip("\(launchPath) failed: \(error)")
+            throw LiveSSHFixtureError.missingCapability("\(launchPath) failed: \(error)")
         }
         return output
     }

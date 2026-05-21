@@ -106,7 +106,7 @@ Deliver advanced integration and tooling.
 - Implement legacy RSA opt-in.
 - Implement custom algorithm profile configuration.
 - Implement latency measurement tools.
-- Add broader compatibility validation against OpenSSH, Dropbear, and common proxy setups.
+- Add live compatibility validation against OpenSSH, Dropbear, legacy RSA, and common proxy setups.
 - Add release packaging and multi-destination CI.
 
 ## Permanent Architecture Rules

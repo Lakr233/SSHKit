@@ -69,6 +69,28 @@ final class HostTrustLiveTests: LiveSSHTestCase {
         }
     }
 
+    func testKeychainTrustStoreAcceptsFixtureHostKey() async throws {
+        try requireLiveTestsEnabled()
+
+        let fixture = try AlpineSSHFixture()
+        let fingerprint = try await discoverFixtureFingerprint(fixture: fixture)
+        let store = SSHKeychainHostTrustStore(service: "wiki.qaq.sshkit.live.\(UUID().uuidString)")
+        defer {
+            try? store.removeFingerprint(host: fixture.host, port: fixture.port)
+        }
+        try store.saveFingerprint(fingerprint, host: fixture.host, port: fixture.port)
+
+        let connection = try await SSHClient.connect(configuration: privateKeyConfiguration(
+            fixture: fixture,
+            hostKeyPolicy: .trustStore(store),
+        ))
+
+        XCTAssertEqual(connection.hostKeyFingerprint, fingerprint)
+        let result = try await connection.execute("whoami && cat /etc/alpine-release")
+        try await connection.close()
+        assertSmokeCommandResult(result)
+    }
+
     private func discoverFixtureFingerprint(fixture: AlpineSSHFixture) async throws -> SSHHostKeyFingerprint {
         let connection = try await SSHClient.connect(configuration: privateKeyConfiguration(
             fixture: fixture,

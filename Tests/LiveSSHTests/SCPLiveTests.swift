@@ -74,9 +74,10 @@ final class SCPLiveTests: LiveSSHTestCase {
 
     private func requireRemoteSCP(on connection: SSHConnection) async throws {
         let result = try await connection.execute("command -v scp >/dev/null 2>&1")
-        guard result.exitStatus == 0 else {
-            throw XCTSkip("SCP live tests require scp on the fixture host.")
-        }
+        try requireLiveFixtureCapability(
+            result.exitStatus == 0,
+            "SCP live tests require scp on the fixture host.",
+        )
     }
 
     private func shellQuoted(_ value: String) -> String {

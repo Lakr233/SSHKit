@@ -61,7 +61,7 @@ private struct LegacyRSAFixture {
 
     init() throws {
         host = try Self.requiredEnvironmentValue("SSHKIT_LEGACY_RSA_HOST")
-        try Self.requireRemoteFixtureHost(host)
+        try requireExternalFixtureHost(host)
         port = try UInt16(Self.requiredEnvironmentValue("SSHKIT_LEGACY_RSA_PORT"))
             .unwrap("SSHKIT_LEGACY_RSA_PORT must be a valid UInt16.")
         username = try Self.requiredEnvironmentValue("SSHKIT_LEGACY_RSA_USERNAME")
@@ -71,19 +71,8 @@ private struct LegacyRSAFixture {
 
     private static func requiredEnvironmentValue(_ name: String) throws -> String {
         guard let value = ProcessInfo.processInfo.environment[name], value.isEmpty == false else {
-            throw XCTSkip("Missing optional legacy RSA live SSH fixture value: \(name)")
+            throw LiveSSHFixtureError.missingEnvironment(name)
         }
         return value
-    }
-
-    private static func requireRemoteFixtureHost(_ host: String) throws {
-        let normalizedHost = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
-        let localHosts = ["localhost", "ip6-localhost", "::1", "0:0:0:0:0:0:0:1", "0.0.0.0"]
-        guard localHosts.contains(normalizedHost) == false,
-              normalizedHost.hasPrefix("127.") == false,
-              normalizedHost.hasPrefix("::ffff:127.") == false
-        else {
-            throw LiveSSHFixtureError.localHost(host)
-        }
     }
 }

@@ -14,7 +14,7 @@ Current MVP capabilities:
 - SCP single-file upload and download helpers
 - structured logging, bounded log recorders, diagnostic reports, algorithm profiles, and latency probes
 
-The live test suite targets an external Alpine SSH fixture. It covers real command, shell/PTY, SFTP list/upload/download, SCP, forwarding, proxy route, authentication failure, host-key failure, cancellation, and scoped connection behavior.
+The live test suite targets external Alpine, legacy RSA, and Dropbear SSH fixtures. It covers real command, shell/PTY, SFTP list/upload/download, SCP, forwarding, proxy route, authentication failure, host-key failure, cancellation, and scoped connection behavior.
 
 Validation entry points:
 

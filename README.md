@@ -26,3 +26,7 @@ Script/test-live-fixture.sh
 ```
 
 `Script/test-live-fixture.sh` requires the external fixture environment in `Documentation/Fixtures/AlpineSSH.md` and rejects loopback hosts.
+
+## License
+
+SSHKit project code is licensed under the MIT License. Vendored libssh code remains under its upstream GNU Lesser General Public License terms at `Vendor/libssh/COPYING`. See `NOTICE`.

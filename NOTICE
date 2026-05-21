@@ -1,0 +1,13 @@
+SSHKit
+Copyright (c) 2026 SSHKit contributors
+
+SSHKit project code is licensed under the MIT License. See LICENSE.
+
+This repository vendors libssh source code under Vendor/libssh. The vendored
+libssh code remains under its upstream GNU Lesser General Public License terms;
+the upstream license text is preserved at Vendor/libssh/COPYING.
+
+Third-party Swift package dependencies retain their own licenses:
+
+- KeychainAccess: https://github.com/kishikawakatsumi/KeychainAccess
+- openssl-spm: https://github.com/Lakr233/openssl-spm

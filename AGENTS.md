@@ -66,7 +66,7 @@ Runtime conditions (network loss, auth rejection, host-key mismatch, SFTP status
 
 ### Host trust
 
-`SSHHostKeyPolicy` is the choice point: `.knownHostsFile`, `.trustStore`, `.pinnedFingerprint`, `.insecureAcceptAnyHostKey`. The default Keychain trust store uses service name `wiki.qaq.sshkit` — do not change that string lightly (it's the user-visible Keychain identifier).
+`SSHHostKeyPolicy` is the choice point: `.knownHostsFile`, `.trustStore`, `.pinnedFingerprint`, `.insecureAcceptAnyHostKey`. Use `SSHClient.discoverHostKey` for first-time host-key collection, then let the app/UI save the approved fingerprint into an `SSHHostTrustStore` before connecting with `.trustStore`. The default Keychain trust store uses service name `wiki.qaq.sshkit` — do not change that string lightly (it's the user-visible Keychain identifier).
 
 ### Algorithm profiles
 

@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>SSHKit · Architecture</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github.min.css"
+      integrity="sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L"
+      crossorigin="anonymous"
+      media="(prefers-color-scheme: light)">
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github-dark.min.css"
+      integrity="sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH"
+      crossorigin="anonymous"
+      media="(prefers-color-scheme: dark)">
+</head>
+<body>
+<nav class="topbar" aria-label="Primary">
+  <a class="home" href="index.html">SSHKit</a>
+  <a href="index.html">Overview</a>
+  <a href="guide.html">Guide</a>
+  <a href="api.html">API</a>
+  <a href="architecture.html" aria-current="page">Architecture</a>
+  <a href="objc.html">Obj-C</a>
+</nav>
+
+<main>
+<h1>Architecture</h1>
+<p class="lede">How SSHKit is structured, how it owns libssh state, how cancellation tears connections down, and the rules that hold across releases.</p>
+
+<h2 id="layers">Three layers</h2>
+<pre><code>CLibSSH       C        Vendored libssh + OpenSSL backend + zlib.
+                       Public headers in Sources/CLibSSH/include.
+   |
+SSHKitObjC    Obj-C    Public API (SSHKit* prefix) + internal core (SSHCore* prefix).
+                       Owns ssh_session, socket fd, worker queue, cancellation token.
+   |
+SSHKit        Swift    async/await + callback API, typed errors, Sendable value types.</code></pre>
+<p>All three products are dynamic libraries (<code>.library(... type: .dynamic ...)</code>) so the libssh LGPL boundary stays an explicit, swappable boundary for applications. The Swift module is the primary surface; the Obj-C module is callable from Obj-C applications directly.</p>
+
+<h2 id="ownership">Ownership invariants</h2>
+<p>These are load-bearing rules. Permanent &mdash; not subject to change between releases.</p>
+<ul>
+<li><strong>One TCP socket owns one libssh <code>ssh_session</code>.</strong> The fd is created by SSHKit and passed to libssh through <code>SSH_OPTIONS_FD</code>. <code>SSHCoreSocketHandle</code> mediates cross-thread fd state.</li>
+<li><strong>One <code>SSHConnection</code> runs at most one active high-level job at a time.</strong> The job is exactly one of: collected command (<code>execute</code>), streamed command (<code>openCommand</code>), PTY shell (<code>openShell</code>), SFTP subsystem (<code>openSFTP</code>), or tunnel (<code>openDirectTCPChannel</code>, <code>start*Forward</code>).</li>
+<li><strong>Concurrent SSH work requires multiple <code>SSHConnection</code> instances.</strong> SSHKit does not multiplex channels over one session in the public model.</li>
+</ul>
+
+<h2 id="threading">Threading</h2>
+<table>
+<thead><tr><th>Object</th><th>Queue</th><th>Socket</th><th>libssh</th></tr></thead>
+<tbody>
+<tr><td><code>SSHClient</code></td><td>none</td><td>none</td><td>none</td></tr>
+<tr><td><code>SSHConnection</code></td><td>none</td><td>none</td><td>Swift wrapper</td></tr>
+<tr><td><code>SSHKitConnection</code></td><td>none</td><td>none</td><td>Obj-C wrapper</td></tr>
+<tr><td><code>SSHCoreSessionWorker</code></td><td>one serial queue</td><td>one fd</td><td>one <code>ssh_session</code></td></tr>
+<tr><td><code>SSHShell</code> / <code>SSHCommand</code> / <code>SFTPClient</code> / <code>SSHTunnelChannel</code></td><td>worker queue</td><td>none</td><td>one channel via worker</td></tr>
+</tbody>
+</table>
+<p>Every <code>SSHConnection</code> owns one <code>SSHCoreSessionWorker</code>. That worker has one serial dispatch queue. GCD schedules the queue onto a system thread when work is active &mdash; blocking libssh calls can occupy that worker thread until completion or cancellation.</p>
+<p>Rules:</p>
+<ul>
+<li>All libssh calls run on the worker queue.</li>
+<li>Mutable operation state lives on the worker queue.</li>
+<li>Public methods may be called from any thread.</li>
+<li>Public methods either enqueue work or request cancellation.</li>
+<li>Immutable request objects cross thread boundaries.</li>
+<li>Obj-C objects copy configuration values before enqueueing work.</li>
+</ul>
+
+<h2 id="cancellation">Cancellation &amp; close</h2>
+<p>SSHKit uses blocking libssh I/O. To unblock a libssh call from another thread it shuts down the socket beneath libssh:</p>
+<ol>
+<li>The caller invokes <code>cancel()</code> or <code>close()</code> from any thread (Swift Task cancellation funnels through the same path).</li>
+<li>The public object marks the operation as cancelled or closing.</li>
+<li><code>SSHCoreSocketHandle.shutdownNow()</code> calls <code>shutdown(fd, SHUT_RDWR)</code>.</li>
+<li>Any blocking connect/read/write inside libssh wakes up.</li>
+<li>The worker queue maps the wake-up to cancellation or close.</li>
+<li>The worker queue performs libssh cleanup.</li>
+<li>The worker queue closes the fd through <code>takeFileDescriptorForClose()</code>.</li>
+</ol>
+<p><strong>This is a full-connection teardown.</strong> Cancelling a single SFTP read or a single tunnel write tears the whole connection down &mdash; the underlying socket is gone and any other channel on the same session goes with it. To run the next operation, open a fresh <code>SSHConnection</code>.</p>
+<p>The caller thread may call <code>shutdownNow()</code>; only the worker queue ever calls <code>close(fd)</code>. This avoids fd-reuse hazards. <code>shutdown(fd, SHUT_RDWR)</code> may report <code>EBADF</code>, <code>ENOTCONN</code>, or similar already-closed states on the cancellation path &mdash; SSHKit records those as debug diagnostics and continues cleanup.</p>
+
+<h2 id="state-model">Connection state machine</h2>
+<pre><code>idle
+  -&gt; connecting
+  -&gt; ready
+  -&gt; runningCommand
+  -&gt; ready
+  -&gt; runningShell
+  -&gt; ready
+  -&gt; runningSFTP
+  -&gt; ready
+  -&gt; runningTunnel
+  -&gt; ready
+  -&gt; closing
+  -&gt; closed</code></pre>
+<p>Only one <code>running*</code> state is active at any time. <code>close()</code> is idempotent. Other invalid transitions are programmer errors.</p>
+<table>
+<thead><tr><th>Current state</th><th>Call</th><th>Result</th></tr></thead>
+<tbody>
+<tr><td><code>connecting</code></td><td><code>execute</code></td><td>programmer failure</td></tr>
+<tr><td><code>runningShell</code></td><td><code>openSFTP</code></td><td>programmer failure</td></tr>
+<tr><td><code>closing</code></td><td><code>execute</code></td><td>programmer failure</td></tr>
+<tr><td><code>closed</code></td><td><code>close</code></td><td>idempotent success</td></tr>
+<tr><td><code>closed</code></td><td><code>openShell</code></td><td>programmer failure in debug, typed error in release</td></tr>
+</tbody>
+</table>
+
+<h2 id="fail-loud">Fail-loud policy</h2>
+<p>Caller misuse is a programming bug and SSHKit makes it loud during development.</p>
+<ul>
+<li><strong>Debug builds.</strong> Invalid object state crashes. Swift uses <code>preconditionFailure</code>; Obj-C uses <code>NSParameterAssert</code>, <code>NSAssert</code>, or <code>NSInvalidArgumentException</code>. Impossible libssh states crash too.</li>
+<li><strong>Release builds.</strong> Runtime failures surface as typed errors on throwing or callback APIs (<code>SSHKitError</code> / <code>NSError</code>). Closed-object use surfaces as a typed error rather than a crash. <code>close()</code> stays idempotent.</li>
+</ul>
+<p>Runtime failures &mdash; network loss, authentication rejection, host-key mismatch, server disconnect, protocol errors, SFTP status, command non-zero exit &mdash; are <em>always</em> typed errors, never crashes. Crashes are reserved for the things you can fix in your own code.</p>
+
+<h2 id="trust">Host trust storage</h2>
+<p>Host trust is explicit and injectable. <code>SSHHostKeyPolicy</code> covers the four ways to validate the server&rsquo;s key:</p>
+<ul>
+<li><code>.knownHostsFile(path)</code> &mdash; OpenSSH-format file.</li>
+<li><code>.trustStore(any SSHHostTrustStore)</code> &mdash; arbitrary store implementation.</li>
+<li><code>.pinnedFingerprint(SSHHostKeyFingerprint)</code> &mdash; SHA-256 match against the value you ship.</li>
+<li><code>.insecureAcceptAnyHostKey</code> &mdash; explicit, emits a warning log event, exposes the server fingerprint on the returned connection.</li>
+</ul>
+<p>Two trust stores ship with the package &mdash; <code>SSHMemoryHostTrustStore</code> and <code>SSHKeychainHostTrustStore</code>. The Keychain store keys entries by lowercase <code>host:port</code> and defaults to service name <code>wiki.qaq.sshkit</code>. Applications may inject any conforming <code>SSHHostTrustStore</code>.</p>
+
+<h2 id="algorithms">Algorithm profiles</h2>
+<p><code>SSHAlgorithmProfile</code> wraps libssh&rsquo;s comma-separated algorithm lists.</p>
+<ul>
+<li><code>.modern</code> keeps libssh defaults and sets RSA minimum to <strong>3072 bits</strong>.</li>
+<li><code>.legacyRSA</code> opts back into <code>ssh-rsa</code> host-key + public-key algorithms and lowers RSA minimum to <strong>1024 bits</strong>.</li>
+<li>Custom profiles pass lists through libssh and may use the OpenSSH-compatible <code>+</code>, <code>-</code>, and <code>^</code> modifiers (add, remove, prepend).</li>
+</ul>
+<p>libssh rejects unsupported algorithm names during session configuration and algorithm inspection; SSHKit exposes those failures as typed errors. <code>publicKeyAcceptedAlgorithms</code> inherits libssh&rsquo;s host-key defaults when the profile leaves it unset. libssh exposes <code>minimumRSAKeySize</code> as a set-only option, so the inspection snapshot reports the configured value when a profile supplies one and leaves it absent otherwise. The set of accepted algorithms is bounded by what the vendored libssh + OpenSSL build supports; endpoints that need algorithms outside that set require server-side changes or a custom libssh build.</p>
+
+<h2 id="permanent">Permanent architecture rules</h2>
+<p>These rules will not change between SSHKit releases:</p>
+<ul>
+<li>One TCP socket owns one libssh <code>ssh_session</code>.</li>
+<li>One <code>SSHConnection</code> runs one active high-level job at a time.</li>
+<li>Concurrent high-level jobs use multiple <code>SSHConnection</code> instances.</li>
+<li>All libssh calls run on the connection worker queue.</li>
+<li>Public cancellation calls socket shutdown immediately.</li>
+<li>The worker queue owns libssh cleanup and fd close.</li>
+<li>Caller misuse fails loudly in debug.</li>
+<li>Runtime failures surface as typed Swift errors and <code>NSError</code> values.</li>
+<li>Trust storage is dependency-injectable.</li>
+<li>The default Keychain trust store uses service <code>wiki.qaq.sshkit</code>.</li>
+</ul>
+
+<footer>
+SSHKit · <a href="https://github.com/Lakr233/SSHKit">github.com/Lakr233/SSHKit</a>
+</footer>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/highlight.min.js"
+        integrity="sha384-GdEWAbCjn+ghjX0gLx7/N1hyTVmPAjdC2OvoAA0RyNcAOhqwtT8qnbCxWle2+uJX"
+        crossorigin="anonymous"></script>
+<script>hljs.highlightAll();</script>
+</body>
+</html>

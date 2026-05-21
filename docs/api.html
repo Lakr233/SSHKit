@@ -1,0 +1,735 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>SSHKit · API</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github.min.css"
+      integrity="sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L"
+      crossorigin="anonymous"
+      media="(prefers-color-scheme: light)">
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github-dark.min.css"
+      integrity="sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH"
+      crossorigin="anonymous"
+      media="(prefers-color-scheme: dark)">
+</head>
+<body>
+<nav class="topbar" aria-label="Primary">
+  <a class="home" href="index.html">SSHKit</a>
+  <a href="index.html">Overview</a>
+  <a href="guide.html">Guide</a>
+  <a href="api.html" aria-current="page">API</a>
+  <a href="architecture.html">Architecture</a>
+  <a href="objc.html">Obj-C</a>
+</nav>
+
+<main>
+<h1>API reference</h1>
+<p class="lede">Public Swift surface of the <code>SSHKit</code> module. Async signatures are shown; each throwing async method has a matching callback overload that takes <code>callbackQueue: DispatchQueue</code> and <code>completion: (Result&lt;…, SSHKitError&gt;) -&gt; Void</code>.</p>
+
+<ul class="anchor-list">
+<li><a href="#SSHClient">SSHClient</a></li>
+<li><a href="#SSHClientConfiguration">SSHClientConfiguration</a></li>
+<li><a href="#SSHProxyRoute">SSHProxyRoute</a></li>
+<li><a href="#SSHProxyEndpoint">SSHProxyEndpoint</a></li>
+<li><a href="#SSHJumpHost">SSHJumpHost</a></li>
+<li><a href="#SSHConnection">SSHConnection</a></li>
+<li><a href="#SSHCommand">SSHCommand</a></li>
+<li><a href="#SSHCommandEvent">SSHCommandEvent</a></li>
+<li><a href="#SSHCommandResult">SSHCommandResult</a></li>
+<li><a href="#SSHShell">SSHShell</a></li>
+<li><a href="#SSHShellEvent">SSHShellEvent</a></li>
+<li><a href="#SSHTunnelChannel">SSHTunnelChannel</a></li>
+<li><a href="#SSHPortForward">SSHPortForward</a></li>
+<li><a href="#scp">SCP extensions</a></li>
+<li><a href="#SFTPClient">SFTPClient</a></li>
+<li><a href="#SFTPFileHandle">SFTPFileHandle</a></li>
+<li><a href="#SFTPEntry">SFTPEntry</a></li>
+<li><a href="#SFTPAttributes">SFTPAttributes</a></li>
+<li><a href="#SFTPFileOpenFlags">SFTPFileOpenFlags</a></li>
+<li><a href="#SSHAuthentication">SSHAuthentication</a></li>
+<li><a href="#SSHKeyboardInteractivePrompt">SSHKeyboardInteractivePrompt</a></li>
+<li><a href="#SSHAgentConfiguration">SSHAgentConfiguration</a></li>
+<li><a href="#SSHAuthenticationMethod">SSHAuthenticationMethod</a></li>
+<li><a href="#SSHAuthenticationDiscoveryResult">SSHAuthenticationDiscoveryResult</a></li>
+<li><a href="#SSHHostKeyPolicy">SSHHostKeyPolicy</a></li>
+<li><a href="#SSHHostKeyFingerprint">SSHHostKeyFingerprint</a></li>
+<li><a href="#SSHHostTrustStore">SSHHostTrustStore</a></li>
+<li><a href="#SSHMemoryHostTrustStore">SSHMemoryHostTrustStore</a></li>
+<li><a href="#SSHKeychainHostTrustStore">SSHKeychainHostTrustStore</a></li>
+<li><a href="#SSHKeychainCredentialStore">SSHKeychainCredentialStore</a></li>
+<li><a href="#SSHPrivateKeyCredential">SSHPrivateKeyCredential</a></li>
+<li><a href="#SSHKeyGenerationType">SSHKeyGenerationType</a></li>
+<li><a href="#SSHGeneratedKeyPair">SSHGeneratedKeyPair</a></li>
+<li><a href="#SSHKeyGenerator">SSHKeyGenerator</a></li>
+<li><a href="#SSHAlgorithmProfile">SSHAlgorithmProfile</a></li>
+<li><a href="#SSHAlgorithmSnapshot">SSHAlgorithmSnapshot</a></li>
+<li><a href="#SSHLogLevel">SSHLogLevel</a></li>
+<li><a href="#SSHLogEvent">SSHLogEvent</a></li>
+<li><a href="#SSHLogHandler">SSHLogHandler</a></li>
+<li><a href="#SSHLogRecorder">SSHLogRecorder</a></li>
+<li><a href="#SSHDiagnosticReport">SSHDiagnosticReport</a></li>
+<li><a href="#SSHPortLatencyProbe">SSHPortLatencyProbe</a></li>
+<li><a href="#SSHPortLatencyReport">SSHPortLatencyReport</a></li>
+<li><a href="#SSHPortLatencyRoute">SSHPortLatencyRoute</a></li>
+<li><a href="#SSHKitError">SSHKitError</a></li>
+<li><a href="#SSHKitErrorCode">SSHKitErrorCode</a></li>
+</ul>
+
+<h2 id="SSHClient">SSHClient</h2>
+<p>Stateless entry point. <code>SSHClient.Configuration</code> is a typealias for <code>SSHClientConfiguration</code>.</p>
+<pre><code class="language-swift">public enum SSHClient {
+    public typealias Configuration = SSHClientConfiguration
+
+    public static func connect(configuration: SSHClientConfiguration) async throws -> SSHConnection
+    public static func discoverAuthenticationMethods(
+        configuration: SSHClientConfiguration
+    ) async throws -> SSHAuthenticationDiscoveryResult
+
+    public static func withConnection&lt;Result&gt;(
+        _ configuration: SSHClientConfiguration,
+        operation: (SSHConnection) async throws -&gt; Result
+    ) async throws -&gt; Result
+}
+</code></pre>
+
+<h2 id="SSHClientConfiguration">SSHClientConfiguration</h2>
+<pre><code class="language-swift">public struct SSHClientConfiguration: Sendable {
+    public var host: String
+    public var port: UInt16
+    public var username: String
+    public var authentication: SSHAuthentication
+    public var hostKeyPolicy: SSHHostKeyPolicy
+    public var timeout: TimeInterval
+    public var logHandler: SSHLogHandler?
+    public var proxyRoute: SSHProxyRoute?
+    public var algorithmProfile: SSHAlgorithmProfile
+
+    public init(
+        host: String,
+        port: UInt16 = 22,
+        username: String,
+        authentication: SSHAuthentication,
+        hostKeyPolicy: SSHHostKeyPolicy,
+        timeout: TimeInterval = 30,
+        logHandler: SSHLogHandler? = nil,
+        proxyRoute: SSHProxyRoute? = nil,
+        algorithmProfile: SSHAlgorithmProfile = .modern
+    )
+
+    public func diagnosticReport(
+        phase: String = "configuration",
+        metadata: [String: String] = [:],
+        recentEvents: [SSHLogEvent] = []
+    ) -&gt; SSHDiagnosticReport
+}
+</code></pre>
+
+<h2 id="SSHProxyRoute">SSHProxyRoute</h2>
+<pre><code class="language-swift">public enum SSHProxyRoute: Sendable {
+    case socks5(SSHProxyEndpoint)
+    case httpConnect(SSHProxyEndpoint)
+    case proxyJump(SSHJumpHost)
+}
+</code></pre>
+
+<h2 id="SSHProxyEndpoint">SSHProxyEndpoint</h2>
+<pre><code class="language-swift">public struct SSHProxyEndpoint: Sendable {
+    public var host: String
+    public var port: UInt16
+    public var username: String?
+    public var password: String?
+
+    public init(host: String, port: UInt16, username: String? = nil, password: String? = nil)
+}
+</code></pre>
+
+<h2 id="SSHJumpHost">SSHJumpHost</h2>
+<pre><code class="language-swift">public struct SSHJumpHost: Sendable {
+    public var host: String
+    public var port: UInt16
+    public var username: String
+    public var authentication: SSHAuthentication
+    public var hostKeyPolicy: SSHHostKeyPolicy
+    public var timeout: TimeInterval
+    public var algorithmProfile: SSHAlgorithmProfile
+
+    public init(
+        host: String,
+        port: UInt16 = 22,
+        username: String,
+        authentication: SSHAuthentication,
+        hostKeyPolicy: SSHHostKeyPolicy,
+        timeout: TimeInterval = 30,
+        algorithmProfile: SSHAlgorithmProfile = .modern
+    )
+}
+</code></pre>
+
+<h2 id="SSHConnection">SSHConnection</h2>
+<p>One <code>SSHConnection</code> owns one libssh session and runs one active high-level job at a time.</p>
+<pre><code class="language-swift">public final class SSHConnection: @unchecked Sendable {
+    public var hostKeyFingerprint: SSHHostKeyFingerprint? { get }
+
+    public func diagnosticReport(
+        phase: String = "connected",
+        metadata: [String: String] = [:],
+        recentEvents: [SSHLogEvent] = []
+    ) -&gt; SSHDiagnosticReport
+
+    public func execute(_ command: String) async throws -&gt; SSHCommandResult
+    public func openCommand(_ command: String) async throws -&gt; SSHCommand
+
+    public func openShell(
+        terminalType: String = "xterm-256color",
+        columns: UInt16 = 80,
+        rows: UInt16 = 24,
+        eventHandler: @escaping @Sendable (SSHShellEvent) -&gt; Void
+    ) async throws -&gt; SSHShell
+
+    public func openSFTP() async throws -&gt; SFTPClient
+
+    public func openDirectTCPChannel(host: String, port: UInt16) async throws -&gt; SSHTunnelChannel
+
+    public func startLocalForward(
+        localHost: String = "127.0.0.1",
+        localPort: UInt16 = 0,
+        remoteHost: String,
+        remotePort: UInt16
+    ) async throws -&gt; SSHPortForward
+
+    public func startRemoteForward(
+        remoteHost: String = "127.0.0.1",
+        remotePort: UInt16 = 0,
+        localHost: String,
+        localPort: UInt16
+    ) async throws -&gt; SSHPortForward
+
+    public func startDynamicForward(
+        localHost: String = "127.0.0.1",
+        localPort: UInt16 = 0,
+        username: String? = nil,
+        password: String? = nil
+    ) async throws -&gt; SSHPortForward
+
+    public func close() async throws
+}
+</code></pre>
+
+<h2 id="SSHCommand">SSHCommand</h2>
+<pre><code class="language-swift">public final class SSHCommand: @unchecked Sendable {
+    public let events: AsyncStream&lt;SSHCommandEvent&gt;
+
+    public func write(_ data: Data) async throws
+    public func write(_ string: String, encoding: String.Encoding = .utf8) async throws
+    public func sendEOF() async throws
+    public func close() async throws
+}
+</code></pre>
+
+<h2 id="SSHCommandEvent">SSHCommandEvent</h2>
+<pre><code class="language-swift">public enum SSHCommandEvent: Equatable, Sendable {
+    case standardOutput(Data)
+    case standardError(Data)
+    case closed(Int32, exitSignal: String? = nil)
+}
+</code></pre>
+
+<h2 id="SSHCommandResult">SSHCommandResult</h2>
+<pre><code class="language-swift">public struct SSHCommandResult: Equatable, Sendable {
+    public var standardOutput: Data
+    public var standardError: Data
+    public var exitStatus: Int32
+    public var exitSignal: String?
+}
+</code></pre>
+
+<h2 id="SSHShell">SSHShell</h2>
+<pre><code class="language-swift">public final class SSHShell: @unchecked Sendable {
+    public func write(_ data: Data) async throws
+    public func write(_ string: String, encoding: String.Encoding = .utf8) async throws
+    public func resize(columns: UInt16, rows: UInt16) async throws
+    public func close() async throws
+}
+</code></pre>
+
+<h2 id="SSHShellEvent">SSHShellEvent</h2>
+<pre><code class="language-swift">public enum SSHShellEvent: Equatable, Sendable {
+    case standardOutput(Data)
+    case standardError(Data)  // reserved; PTY-backed shells merge stderr into stdout
+    case closed(Int32)
+}
+</code></pre>
+
+<h2 id="SSHTunnelChannel">SSHTunnelChannel</h2>
+<pre><code class="language-swift">public final class SSHTunnelChannel: @unchecked Sendable {
+    public func read(maximumLength: Int = 32_768) async throws -&gt; Data
+    public func write(_ data: Data) async throws
+    public func close() async throws
+}
+</code></pre>
+
+<h2 id="SSHPortForward">SSHPortForward</h2>
+<pre><code class="language-swift">public final class SSHPortForward: @unchecked Sendable {
+    public let boundHost: String
+    public let boundPort: UInt16
+
+    public func close() async throws
+}
+</code></pre>
+
+<h2 id="scp">SCP extensions</h2>
+<p>SCP is not a separate type. It ships as <code>public extension SSHConnection</code> in <code>SCPClient.swift</code>:</p>
+<pre><code class="language-swift">public extension SSHConnection {
+    func uploadFileWithSCP(
+        localURL: URL,
+        toRemotePath remotePath: String,
+        permissions: UInt16 = 0o644,
+        maximumSize: UInt64 = 64 * 1024 * 1024
+    ) async throws
+
+    func downloadFileWithSCP(
+        remotePath: String,
+        toLocalURL localURL: URL,
+        maximumSize: UInt64 = 64 * 1024 * 1024
+    ) async throws
+}
+</code></pre>
+
+<h2 id="SFTPClient">SFTPClient</h2>
+<pre><code class="language-swift">public final class SFTPClient: @unchecked Sendable {
+    public func listDirectory(_ path: String) async throws -&gt; [SFTPEntry]
+    public func realpath(_ path: String) async throws -&gt; String
+    public func stat(_ path: String) async throws -&gt; SFTPAttributes
+    public func lstat(_ path: String) async throws -&gt; SFTPAttributes
+    public func setPermissions(_ permissions: UInt32, at path: String) async throws
+    public func fileSystemAttributes(at path: String) async throws -&gt; [String: UInt64]
+
+    public func createDirectory(_ path: String, permissions: UInt32 = 0o755) async throws
+    public func removeDirectory(_ path: String) async throws
+    public func removeFile(_ path: String) async throws
+    public func rename(_ sourcePath: String, to destinationPath: String) async throws
+
+    public func readLink(_ path: String) async throws -&gt; String
+    public func createSymbolicLink(_ linkPath: String, targetPath: String) async throws
+
+    public func openFile(
+        _ path: String,
+        flags: SFTPFileOpenFlags,
+        permissions: UInt32 = 0o600
+    ) async throws -&gt; SFTPFileHandle
+
+    public func readFile(_ path: String) async throws -&gt; Data
+    public func writeFile(_ data: Data, to path: String) async throws
+
+    public func download(
+        remotePath: String,
+        to localURL: URL,
+        progress: (@Sendable (UInt64, UInt64) -&gt; Void)? = nil
+    ) async throws
+    public func upload(
+        localURL: URL,
+        to remotePath: String,
+        progress: (@Sendable (UInt64, UInt64) -&gt; Void)? = nil
+    ) async throws
+    public func resumeDownload(
+        remotePath: String,
+        to localURL: URL,
+        progress: (@Sendable (UInt64, UInt64) -&gt; Void)? = nil
+    ) async throws
+    public func resumeUpload(
+        localURL: URL,
+        to remotePath: String,
+        progress: (@Sendable (UInt64, UInt64) -&gt; Void)? = nil
+    ) async throws
+
+    public func close() async throws
+}
+</code></pre>
+<p>Progress callbacks deliver <code>(completedBytes, totalBytes)</code>. Resumable transfers continue from the current local file size.</p>
+
+<h2 id="SFTPFileHandle">SFTPFileHandle</h2>
+<pre><code class="language-swift">public final class SFTPFileHandle: @unchecked Sendable {
+    public func readData(maximumLength: Int) async throws -&gt; Data
+    public func writeData(_ data: Data) async throws
+    public func seek(to offset: UInt64) async throws
+    public func close() async throws
+}
+</code></pre>
+
+<h2 id="SFTPEntry">SFTPEntry</h2>
+<pre><code class="language-swift">public struct SFTPEntry: Equatable, Sendable {
+    public var filename: String
+    public var attributes: SFTPAttributes?
+}
+</code></pre>
+
+<h2 id="SFTPAttributes">SFTPAttributes</h2>
+<pre><code class="language-swift">public struct SFTPAttributes: Equatable, Sendable {
+    public var size: UInt64
+    public var permissions: UInt32
+    public var uid: UInt32
+    public var gid: UInt32
+    public var type: UInt8
+    public var accessedAt: Date?
+    public var modifiedAt: Date?
+}
+</code></pre>
+
+<h2 id="SFTPFileOpenFlags">SFTPFileOpenFlags</h2>
+<pre><code class="language-swift">public struct SFTPFileOpenFlags: OptionSet, Sendable {
+    public static let read     = SFTPFileOpenFlags(rawValue: 1 &lt;&lt; 0)
+    public static let write    = SFTPFileOpenFlags(rawValue: 1 &lt;&lt; 1)
+    public static let create   = SFTPFileOpenFlags(rawValue: 1 &lt;&lt; 2)
+    public static let truncate = SFTPFileOpenFlags(rawValue: 1 &lt;&lt; 3)
+    public static let append   = SFTPFileOpenFlags(rawValue: 1 &lt;&lt; 4)
+}
+</code></pre>
+
+<h2 id="SSHAuthentication">SSHAuthentication</h2>
+<pre><code class="language-swift">public enum SSHAuthentication: Sendable {
+    case password(String)
+    case privateKeyFile(path: String, passphrase: String? = nil)
+    case keyboardInteractive(SSHKeyboardInteractiveResponseProvider)
+    case agent(SSHAgentConfiguration = SSHAgentConfiguration())
+}
+
+public typealias SSHKeyboardInteractiveResponseProvider =
+    @Sendable (_ name: String, _ instruction: String,
+               _ prompts: [SSHKeyboardInteractivePrompt]) -&gt; [String]
+</code></pre>
+
+<h2 id="SSHKeyboardInteractivePrompt">SSHKeyboardInteractivePrompt</h2>
+<pre><code class="language-swift">public struct SSHKeyboardInteractivePrompt: Equatable, Sendable {
+    public var prompt: String
+    public var echo: Bool
+
+    public init(prompt: String, echo: Bool)
+}
+</code></pre>
+
+<h2 id="SSHAgentConfiguration">SSHAgentConfiguration</h2>
+<pre><code class="language-swift">public struct SSHAgentConfiguration: Equatable, Sendable {
+    public var socketPath: String?
+
+    public init(socketPath: String? = nil)
+}
+</code></pre>
+
+<h2 id="SSHAuthenticationMethod">SSHAuthenticationMethod</h2>
+<pre><code class="language-swift">public enum SSHAuthenticationMethod: Equatable, Sendable {
+    case none
+    case password
+    case publicKey
+    case hostBased
+    case keyboardInteractive
+    case gssapi
+}
+</code></pre>
+
+<h2 id="SSHAuthenticationDiscoveryResult">SSHAuthenticationDiscoveryResult</h2>
+<pre><code class="language-swift">public struct SSHAuthenticationDiscoveryResult: Equatable, Sendable {
+    public var methods: [SSHAuthenticationMethod]
+    public var issueBanner: String?
+    public var serverBanner: String?
+
+    public init(
+        methods: [SSHAuthenticationMethod],
+        issueBanner: String?,
+        serverBanner: String?
+    )
+}
+</code></pre>
+
+<h2 id="SSHHostKeyPolicy">SSHHostKeyPolicy</h2>
+<pre><code class="language-swift">public enum SSHHostKeyPolicy: Sendable {
+    case insecureAcceptAnyHostKey
+    case knownHostsFile(String)
+    case pinnedFingerprint(SSHHostKeyFingerprint)
+    case trustStore(any SSHHostTrustStore)
+}
+</code></pre>
+
+<h2 id="SSHHostKeyFingerprint">SSHHostKeyFingerprint</h2>
+<pre><code class="language-swift">public struct SSHHostKeyFingerprint: Equatable, Codable, Sendable {
+    public var rawValue: String
+
+    public init(_ rawValue: String) // adds "SHA256:" prefix if missing
+}
+</code></pre>
+
+<h2 id="SSHHostTrustStore">SSHHostTrustStore</h2>
+<pre><code class="language-swift">public protocol SSHHostTrustStore: Sendable {
+    func fingerprint(host: String, port: UInt16) throws -&gt; SSHHostKeyFingerprint?
+    func saveFingerprint(_ fingerprint: SSHHostKeyFingerprint, host: String, port: UInt16) throws
+    func removeFingerprint(host: String, port: UInt16) throws
+}
+</code></pre>
+
+<h2 id="SSHMemoryHostTrustStore">SSHMemoryHostTrustStore</h2>
+<pre><code class="language-swift">public final class SSHMemoryHostTrustStore: SSHHostTrustStore, @unchecked Sendable {
+    public init(fingerprints: [String: SSHHostKeyFingerprint] = [:])
+}
+</code></pre>
+
+<h2 id="SSHKeychainHostTrustStore">SSHKeychainHostTrustStore</h2>
+<pre><code class="language-swift">public struct SSHKeychainHostTrustStore: SSHHostTrustStore, @unchecked Sendable {
+    public static let defaultService = "wiki.qaq.sshkit"
+
+    public init(
+        service: String = SSHKeychainHostTrustStore.defaultService,
+        accessGroup: String? = nil
+    )
+}
+</code></pre>
+
+<h2 id="SSHKeychainCredentialStore">SSHKeychainCredentialStore</h2>
+<pre><code class="language-swift">public struct SSHKeychainCredentialStore: @unchecked Sendable {
+    public static let defaultService = "wiki.qaq.sshkit.credentials"
+
+    public init(
+        service: String = SSHKeychainCredentialStore.defaultService,
+        accessGroup: String? = nil
+    )
+
+    public func savePassword(_ password: String, account: String) throws
+    public func password(account: String) throws -&gt; String?
+
+    public func savePrivateKey(_ credential: SSHPrivateKeyCredential, account: String) throws
+    public func privateKey(account: String) throws -&gt; SSHPrivateKeyCredential?
+
+    public func removeCredentials(account: String) throws
+}
+</code></pre>
+
+<h2 id="SSHPrivateKeyCredential">SSHPrivateKeyCredential</h2>
+<pre><code class="language-swift">public struct SSHPrivateKeyCredential: Codable, Equatable, Sendable {
+    public var privateKeyOpenSSH: String
+    public var passphrase: String?
+
+    public init(privateKeyOpenSSH: String, passphrase: String? = nil)
+}
+</code></pre>
+
+<h2 id="SSHKeyGenerationType">SSHKeyGenerationType</h2>
+<pre><code class="language-swift">public enum SSHKeyGenerationType: Sendable, Equatable {
+    case ed25519
+    case rsa(bits: Int = 3072)
+    case ecdsaP256
+    case ecdsaP384
+    case ecdsaP521
+}
+</code></pre>
+
+<h2 id="SSHGeneratedKeyPair">SSHGeneratedKeyPair</h2>
+<pre><code class="language-swift">public struct SSHGeneratedKeyPair: Equatable, Sendable {
+    public var privateKeyOpenSSH: String
+    public var authorizedKey: String
+    public var publicKeyType: String
+}
+</code></pre>
+
+<h2 id="SSHKeyGenerator">SSHKeyGenerator</h2>
+<pre><code class="language-swift">public enum SSHKeyGenerator {
+    public static func generateOpenSSHKeyPair(
+        type: SSHKeyGenerationType = .ed25519,
+        comment: String? = nil,
+        passphrase: String? = nil
+    ) throws -&gt; SSHGeneratedKeyPair
+}
+</code></pre>
+
+<h2 id="SSHAlgorithmProfile">SSHAlgorithmProfile</h2>
+<pre><code class="language-swift">public struct SSHAlgorithmProfile: Equatable, Sendable {
+    public var keyExchangeAlgorithms: String?
+    public var hostKeyAlgorithms: String?
+    public var publicKeyAcceptedAlgorithms: String?
+    public var ciphersClientToServer: String?
+    public var ciphersServerToClient: String?
+    public var macsClientToServer: String?
+    public var macsServerToClient: String?
+    public var minimumRSAKeySize: Int?
+
+    public init(
+        keyExchangeAlgorithms: String? = nil,
+        hostKeyAlgorithms: String? = nil,
+        publicKeyAcceptedAlgorithms: String? = nil,
+        ciphersClientToServer: String? = nil,
+        ciphersServerToClient: String? = nil,
+        macsClientToServer: String? = nil,
+        macsServerToClient: String? = nil,
+        minimumRSAKeySize: Int? = nil
+    )
+
+    public static let modern: SSHAlgorithmProfile     // minimumRSAKeySize: 3072
+    public static let legacyRSA: SSHAlgorithmProfile  // +ssh-rsa, minimumRSAKeySize: 1024
+
+    public func inspectEffectiveAlgorithms() throws -&gt; SSHAlgorithmSnapshot
+}
+</code></pre>
+
+<h2 id="SSHAlgorithmSnapshot">SSHAlgorithmSnapshot</h2>
+<pre><code class="language-swift">public struct SSHAlgorithmSnapshot: Equatable, Sendable {
+    public var keyExchangeAlgorithms: String
+    public var hostKeyAlgorithms: String
+    public var publicKeyAcceptedAlgorithms: String
+    public var ciphersClientToServer: String
+    public var ciphersServerToClient: String
+    public var macsClientToServer: String
+    public var macsServerToClient: String
+    public var minimumRSAKeySize: Int?
+}
+</code></pre>
+
+<h2 id="SSHLogLevel">SSHLogLevel</h2>
+<pre><code class="language-swift">public enum SSHLogLevel: Int, Sendable {
+    case debug
+    case info
+    case warning
+    case error
+}
+</code></pre>
+
+<h2 id="SSHLogEvent">SSHLogEvent</h2>
+<pre><code class="language-swift">public struct SSHLogEvent: Equatable, Sendable {
+    public var level: SSHLogLevel
+    public var phase: String
+    public var message: String
+    public var metadata: [String: String]
+    public var timestamp: Date
+
+    public init(
+        level: SSHLogLevel,
+        phase: String,
+        message: String,
+        metadata: [String: String] = [:],
+        timestamp: Date = Date()
+    )
+
+    public var redacted: SSHLogEvent { get }
+}
+</code></pre>
+
+<h2 id="SSHLogHandler">SSHLogHandler</h2>
+<pre><code class="language-swift">public typealias SSHLogHandler = @Sendable (SSHLogEvent) -&gt; Void
+</code></pre>
+
+<h2 id="SSHLogRecorder">SSHLogRecorder</h2>
+<pre><code class="language-swift">public final class SSHLogRecorder: @unchecked Sendable {
+    public init(capacity: Int = 200)
+
+    public func record(_ event: SSHLogEvent)
+    public var events: [SSHLogEvent] { get }
+}
+</code></pre>
+<p>Events are stored in their <code>redacted</code> form. The buffer is a fixed-capacity ring.</p>
+
+<h2 id="SSHDiagnosticReport">SSHDiagnosticReport</h2>
+<pre><code class="language-swift">public struct SSHDiagnosticReport: Equatable, Sendable {
+    public var phase: String
+    public var host: String
+    public var port: UInt16
+    public var username: String
+    public var authentication: String
+    public var hostKeyPolicy: String
+    public var metadata: [String: String]
+    public var recentEvents: [SSHLogEvent]
+    public var generatedAt: Date
+
+    public init(
+        phase: String,
+        host: String,
+        port: UInt16,
+        username: String,
+        authentication: String,
+        hostKeyPolicy: String,
+        metadata: [String: String] = [:],
+        recentEvents: [SSHLogEvent] = [],
+        generatedAt: Date = Date()
+    )
+}
+</code></pre>
+
+<h2 id="SSHPortLatencyProbe">SSHPortLatencyProbe</h2>
+<pre><code class="language-swift">public enum SSHPortLatencyProbe {
+    public static func measure(
+        configuration: SSHClientConfiguration,
+        serviceCommand: String = "true"
+    ) async throws -&gt; SSHPortLatencyReport
+}
+</code></pre>
+
+<h2 id="SSHPortLatencyReport">SSHPortLatencyReport</h2>
+<pre><code class="language-swift">public struct SSHPortLatencyReport: Equatable, Sendable {
+    public var host: String
+    public var port: UInt16
+    public var route: SSHPortLatencyRoute
+    public var connectDuration: TimeInterval
+    public var sshServiceDuration: TimeInterval
+    public var totalDuration: TimeInterval
+}
+</code></pre>
+
+<h2 id="SSHPortLatencyRoute">SSHPortLatencyRoute</h2>
+<pre><code class="language-swift">public enum SSHPortLatencyRoute: Equatable, Sendable {
+    case direct
+    case socks5(host: String, port: UInt16)
+    case httpConnect(host: String, port: UInt16)
+    case proxyJump(host: String, port: UInt16)
+}
+</code></pre>
+
+<h2 id="SSHKitError">SSHKitError</h2>
+<pre><code class="language-swift">public struct SSHKitError: Error, Equatable, LocalizedError, Sendable {
+    public var code: Int
+    public var message: String
+
+    public init(code: Int, message: String)
+    public var errorDescription: String? { get }
+}
+
+public typealias SSHError = SSHKitError
+</code></pre>
+
+<h2 id="SSHKitErrorCode">SSHKitErrorCode</h2>
+<table>
+<thead><tr><th>Code</th><th>Case</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><code>unavailable</code></td><td>Operation completed without a result, or feature is unsupported.</td></tr>
+<tr><td>2</td><td><code>invalidState</code></td><td>Caller passed invalid input or violated the connection state machine.</td></tr>
+<tr><td>3</td><td><code>connectionFailed</code></td><td>TCP, proxy, or libssh transport setup failed.</td></tr>
+<tr><td>4</td><td><code>authenticationFailed</code></td><td>Server rejected the supplied credentials.</td></tr>
+<tr><td>5</td><td><code>commandFailed</code></td><td>Remote command exited abnormally or SCP/streamed protocol broke.</td></tr>
+<tr><td>6</td><td><code>hostKeyVerificationFailed</code></td><td>Host key did not match the active <code>SSHHostKeyPolicy</code>.</td></tr>
+<tr><td>7</td><td><code>cancelled</code></td><td>Operation was cancelled via Task cancellation or <code>close()</code>.</td></tr>
+<tr><td>8</td><td><code>sftpFailure</code></td><td>Generic SFTP failure not covered by the cases below.</td></tr>
+<tr><td>9</td><td><code>sftpFileNotFound</code></td><td>SFTP server returned a "no such file" status.</td></tr>
+<tr><td>10</td><td><code>sftpPermissionDenied</code></td><td>SFTP server returned a permission-denied status.</td></tr>
+<tr><td>11</td><td><code>sftpNoSpace</code></td><td>SFTP server returned a no-space status.</td></tr>
+</tbody>
+</table>
+
+<footer>
+SSHKit · <a href="https://github.com/Lakr233/SSHKit">github.com/Lakr233/SSHKit</a>
+</footer>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/highlight.min.js"
+        integrity="sha384-GdEWAbCjn+ghjX0gLx7/N1hyTVmPAjdC2OvoAA0RyNcAOhqwtT8qnbCxWle2+uJX"
+        crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/languages/swift.min.js"
+        integrity="sha384-TfALNLT6HJzZieazgsVvFM0DzFWQsgl0d7mdwPLyg1yg7XE4QwLY4jqmJRNnI1S4"
+        crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/languages/objectivec.min.js"
+        integrity="sha384-evxKJTmk5AChNAzYM6uh+DVNAm7QCNu2x/OynLEpbH+h/TVMellCIci2K+uvXWID"
+        crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/languages/bash.min.js"
+        integrity="sha384-83HvQQdGTWqnRLmgm19NjCb1+/awKJGytUX9sm3HJb2ddZ9Fs1Bst2bZogFjt9rr"
+        crossorigin="anonymous"></script>
+<script>hljs.highlightAll();</script>
+</body>
+</html>

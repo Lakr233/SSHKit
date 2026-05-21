@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>SSHKit · Overview</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github.min.css"
+      integrity="sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L"
+      crossorigin="anonymous"
+      media="(prefers-color-scheme: light)">
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github-dark.min.css"
+      integrity="sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH"
+      crossorigin="anonymous"
+      media="(prefers-color-scheme: dark)">
+</head>
+<body>
+<nav class="topbar" aria-label="Primary">
+  <a class="home" href="index.html">SSHKit</a>
+  <a href="index.html" aria-current="page">Overview</a>
+  <a href="guide.html">Guide</a>
+  <a href="api.html">API</a>
+  <a href="architecture.html">Architecture</a>
+  <a href="objc.html">Obj-C</a>
+</nav>
+
+<main>
+<h1>SSHKit</h1>
+<p class="lede">Swift package for libssh on Apple platforms. Async/await, callback, and Objective-C APIs over a single libssh-per-connection worker.</p>
+
+<h2 id="capabilities">Capabilities</h2>
+<ul>
+<li>Authentication: password, private-key file, keyboard-interactive, SSH agent, generated keys.</li>
+<li>Host trust: known-hosts files, pinned fingerprints, memory and Keychain trust stores, explicit insecure mode.</li>
+<li>Commands: collected output with exit status, streamed channels with stdout/stderr/close events, PTY shells with resize.</li>
+<li>SFTP: directory listing, stat/lstat, attributes, mkdir/rmdir, rename, symlinks, chunked read/write, upload, download, resumable transfers with progress.</li>
+<li>Forwarding: direct TCP, local, remote, dynamic SOCKS, SOCKS5 routes, HTTP CONNECT routes, ProxyJump.</li>
+<li>SCP: single-file upload and download helpers built on the streamed channel.</li>
+<li>Diagnostics: structured log events, bounded log recorder, redacted diagnostic reports, algorithm inspection, latency probe.</li>
+</ul>
+
+<h2 id="install">Install</h2>
+<p>Add the package to <code>Package.swift</code>:</p>
+<pre><code class="language-swift">dependencies: [
+    .package(url: "https://github.com/Lakr233/SSHKit.git", from: "0.1.0"),
+],
+targets: [
+    .target(name: "App", dependencies: [
+        .product(name: "SSHKit", package: "SSHKit"),
+    ]),
+]
+</code></pre>
+
+<p>For Xcode projects, add the same URL through <em>File → Add Package Dependencies…</em> and link the <code>SSHKit</code> product. <code>SSHKit</code>, <code>SSHKitObjC</code>, and <code>CLibSSH</code> ship as dynamic libraries to keep the libssh LGPL boundary explicit.</p>
+
+<h2 id="platforms">Platforms</h2>
+<table>
+<thead><tr><th>Platform</th><th>Floor</th></tr></thead>
+<tbody>
+<tr><td>iOS</td><td>13.0</td></tr>
+<tr><td>macOS</td><td>10.15</td></tr>
+<tr><td>Mac Catalyst</td><td>13.0</td></tr>
+<tr><td>tvOS</td><td>13.0</td></tr>
+<tr><td>visionOS</td><td>1.0</td></tr>
+</tbody>
+</table>
+<p class="muted">watchOS is outside the supported set.</p>
+
+<h2 id="quick-start">Quick start</h2>
+<pre><code class="language-swift">import SSHKit
+
+let trustStore = SSHKeychainHostTrustStore()
+let configuration = SSHClient.Configuration(
+    host: "example.com",
+    username: "deploy",
+    authentication: .password("secret"),
+    hostKeyPolicy: .trustStore(trustStore)
+)
+
+let output = try await SSHClient.withConnection(configuration) { connection in
+    try await connection.execute("uname -a")
+}
+
+print(String(data: output.standardOutput, encoding: .utf8) ?? "")
+</code></pre>
+
+<p><code>withConnection</code> opens a session, runs the body, and closes the connection on both success and failure. The default Keychain trust store uses service <code>wiki.qaq.sshkit</code>; replace it with <code>SSHMemoryHostTrustStore</code>, <code>.knownHostsFile</code>, or <code>.pinnedFingerprint</code> as needed. See the <a href="guide.html">Guide</a> for task-oriented walkthroughs.</p>
+
+<h2 id="ownership-rules">Ownership rules at a glance</h2>
+<ul>
+<li>One TCP socket owns one libssh <code>ssh_session</code>.</li>
+<li>One <code>SSHConnection</code> runs at most one active high-level job &mdash; collected command, streamed command, PTY shell, SFTP, or tunnel.</li>
+<li>Concurrent work uses multiple <code>SSHConnection</code> instances.</li>
+<li>Task cancellation tears down the connection through <code>shutdown(fd, SHUT_RDWR)</code>.</li>
+</ul>
+<p>The full model is in <a href="architecture.html">Architecture</a>.</p>
+
+<h2 id="license">License</h2>
+<p>SSHKit project code is MIT-licensed. The vendored libssh source under <code>Vendor/libssh</code> remains under its upstream GNU LGPL terms (see <code>Vendor/libssh/COPYING</code> in the repository). Linking SSHKit dynamically preserves the LGPL boundary.</p>
+
+<footer>
+SSHKit · <a href="https://github.com/Lakr233/SSHKit">github.com/Lakr233/SSHKit</a>
+</footer>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/highlight.min.js"
+        integrity="sha384-GdEWAbCjn+ghjX0gLx7/N1hyTVmPAjdC2OvoAA0RyNcAOhqwtT8qnbCxWle2+uJX"
+        crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/languages/swift.min.js"
+        integrity="sha384-TfALNLT6HJzZieazgsVvFM0DzFWQsgl0d7mdwPLyg1yg7XE4QwLY4jqmJRNnI1S4"
+        crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/languages/objectivec.min.js"
+        integrity="sha384-evxKJTmk5AChNAzYM6uh+DVNAm7QCNu2x/OynLEpbH+h/TVMellCIci2K+uvXWID"
+        crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/languages/bash.min.js"
+        integrity="sha384-83HvQQdGTWqnRLmgm19NjCb1+/awKJGytUX9sm3HJb2ddZ9Fs1Bst2bZogFjt9rr"
+        crossorigin="anonymous"></script>
+<script>hljs.highlightAll();</script>
+</body>
+</html>

@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>SSHKit · Guide</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github.min.css"
+      integrity="sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L"
+      crossorigin="anonymous"
+      media="(prefers-color-scheme: light)">
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github-dark.min.css"
+      integrity="sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH"
+      crossorigin="anonymous"
+      media="(prefers-color-scheme: dark)">
+</head>
+<body>
+<nav class="topbar" aria-label="Primary">
+  <a class="home" href="index.html">SSHKit</a>
+  <a href="index.html">Overview</a>
+  <a href="guide.html" aria-current="page">Guide</a>
+  <a href="api.html">API</a>
+  <a href="architecture.html">Architecture</a>
+  <a href="objc.html">Obj-C</a>
+</nav>
+
+<main>
+<h1>Guide</h1>
+<p class="lede">Task-oriented walkthroughs for the Swift surface. Every snippet uses <code>async/await</code>; callback equivalents exist for the same operations &mdash; see the <a href="api.html">API reference</a>.</p>
+
+<ul class="anchor-list">
+<li><a href="#connect">Connect</a></li>
+<li><a href="#auth">Authentication</a></li>
+<li><a href="#host-trust">Host trust</a></li>
+<li><a href="#commands">Commands</a></li>
+<li><a href="#shell">PTY shell</a></li>
+<li><a href="#sftp">SFTP</a></li>
+<li><a href="#scp">SCP</a></li>
+<li><a href="#forwarding">Forwarding &amp; tunnels</a></li>
+<li><a href="#proxy">Proxy routes</a></li>
+<li><a href="#diagnostics">Diagnostics &amp; logging</a></li>
+<li><a href="#latency">Latency probe</a></li>
+<li><a href="#keys">Key generation</a></li>
+</ul>
+
+<h2 id="connect">Connect</h2>
+<p>Two entry points produce an <code>SSHConnection</code>. Scoped <code>withConnection</code> closes the session for you on the success and failure paths.</p>
+<pre><code class="language-swift">// Scoped (recommended)
+let result = try await SSHClient.withConnection(configuration) { connection in
+    try await connection.execute("uptime")
+}
+
+// Manual
+let connection = try await SSHClient.connect(configuration: configuration)
+defer { Task { try? await connection.close() } }
+let report = connection.diagnosticReport()
+</code></pre>
+<p>Cancelling the surrounding <code>Task</code> aborts the in-flight operation by shutting down the underlying socket; the entire connection tears down. Open a fresh <code>SSHConnection</code> for the next attempt.</p>
+
+<h2 id="auth">Authentication</h2>
+<p><code>SSHAuthentication</code> is the auth method picker. Each case is constructed with its required inputs.</p>
+
+<h3>Password</h3>
+<pre><code class="language-swift">let auth: SSHAuthentication = .password("hunter2")
+</code></pre>
+
+<h3>Private key file</h3>
+<pre><code class="language-swift">let auth: SSHAuthentication = .privateKeyFile(
+    path: "/Users/me/.ssh/id_ed25519",
+    passphrase: nil
+)
+</code></pre>
+<p>Pass an OpenSSH PEM path. If the key is encrypted, supply the passphrase; otherwise pass <code>nil</code> (the default).</p>
+
+<h3>Keyboard-interactive</h3>
+<pre><code class="language-swift">let auth: SSHAuthentication = .keyboardInteractive { name, instruction, prompts in
+    // Return one response per prompt, in order. `echo == false` means do not display input.
+    prompts.map { prompt in
+        prompt.echo ? "deploy" : "<one-time-password>"
+    }
+}
+</code></pre>
+
+<h3>SSH agent</h3>
+<pre><code class="language-swift">let auth: SSHAuthentication = .agent()
+// Or pin a specific agent socket:
+let pinned: SSHAuthentication = .agent(SSHAgentConfiguration(socketPath: "/tmp/agent.sock"))
+</code></pre>
+
+<h3>Probing what the server offers</h3>
+<pre><code class="language-swift">let discovery = try await SSHClient.discoverAuthenticationMethods(
+    configuration: configuration
+)
+if discovery.methods.contains(.publicKey) {
+    // route to private-key auth
+}
+</code></pre>
+
+<h2 id="host-trust">Host trust</h2>
+<p><code>SSHHostKeyPolicy</code> determines how the server's host key is validated. Pick one.</p>
+<pre><code class="language-swift">// 1. OpenSSH known_hosts file
+let policy: SSHHostKeyPolicy = .knownHostsFile("/Users/me/.ssh/known_hosts")
+
+// 2. SHA-256 fingerprint pin
+let policy: SSHHostKeyPolicy = .pinnedFingerprint(
+    SSHHostKeyFingerprint("SHA256:abcd…")
+)
+
+// 3. Inject any trust store
+let policy: SSHHostKeyPolicy = .trustStore(SSHKeychainHostTrustStore())
+
+// 4. Explicit insecure (testing only)
+let policy: SSHHostKeyPolicy = .insecureAcceptAnyHostKey
+</code></pre>
+
+<p>The <code>SSHHostTrustStore</code> protocol is dependency-injectable. Two implementations ship with the package:</p>
+<ul>
+<li><code>SSHMemoryHostTrustStore</code> &mdash; volatile, useful for tests.</li>
+<li><code>SSHKeychainHostTrustStore</code> &mdash; persists SHA-256 fingerprints keyed by <code>host:port</code> in the Keychain. Default service name is <code>wiki.qaq.sshkit</code>.</li>
+</ul>
+
+<p>The fingerprint passed to <code>.pinnedFingerprint</code> and stored in trust stores is normalized: if the raw value omits the <code>SHA256:</code> prefix, SSHKit adds it. After a successful connection, retrieve the live fingerprint with <code>connection.hostKeyFingerprint</code>; that is the value to persist for next time.</p>
+
+<h2 id="commands">Commands</h2>
+<p>Two flavours.</p>
+
+<h3>Collected (batch)</h3>
+<pre><code class="language-swift">let result = try await connection.execute("uname -a")
+print(result.exitStatus)
+print(String(data: result.standardOutput, encoding: .utf8) ?? "")
+</code></pre>
+<p><code>SSHCommandResult</code> exposes <code>standardOutput</code>, <code>standardError</code>, <code>exitStatus</code>, and an optional <code>exitSignal</code> for remote signal termination.</p>
+
+<h3>Streamed</h3>
+<pre><code class="language-swift">let command = try await connection.openCommand("tail -F /var/log/app.log")
+
+for await event in command.events {
+    switch event {
+    case .standardOutput(let data):
+        if let text = String(data: data, encoding: .utf8) { print(text, terminator: "") }
+    case .standardError:
+        break
+    case .closed(let status, let signal):
+        print("closed status=\(status) signal=\(signal ?? "-")")
+        return
+    }
+}
+</code></pre>
+<p><code>events</code> is an <code>AsyncStream</code> that finishes when the channel closes. You can write to the remote stdin while the stream is live (<code>command.write(...)</code>) and call <code>command.sendEOF()</code> / <code>command.close()</code>.</p>
+
+<h2 id="shell">PTY shell</h2>
+<pre><code class="language-swift">let shell = try await connection.openShell(
+    terminalType: "xterm-256color",
+    columns: 120,
+    rows: 32
+) { event in
+    if case .standardOutput(let data) = event {
+        FileHandle.standardOutput.write(data)
+    }
+}
+
+try await shell.write("ls -la\n")
+try await shell.resize(columns: 200, rows: 50)
+try await shell.close()
+</code></pre>
+<p>PTY-backed shells merge stderr into stdout (<code>.standardError</code> cases are reserved for non-PTY backends). The shell event handler runs off the worker queue; the closed event fires once with the channel exit status.</p>
+
+<h2 id="sftp">SFTP</h2>
+<p>Open an SFTP subsystem on the connection. While the <code>SFTPClient</code> is alive the connection is dedicated to it.</p>
+<pre><code class="language-swift">let sftp = try await connection.openSFTP()
+
+// Listing
+for entry in try await sftp.listDirectory("/var/log") {
+    print(entry.filename, entry.attributes?.size ?? 0)
+}
+
+// Whole-file read/write
+let data = try await sftp.readFile("/etc/hostname")
+try await sftp.writeFile(Data("hello\n".utf8), to: "/tmp/hello.txt")
+
+// File handles (for chunked I/O)
+let handle = try await sftp.openFile(
+    "/tmp/big.bin",
+    flags: [.read],
+    permissions: 0o600
+)
+while true {
+    let chunk = try await handle.readData(maximumLength: 64 * 1024)
+    if chunk.isEmpty { break }
+    // process chunk
+}
+try await handle.close()
+
+// Attributes &amp; filesystem
+let attributes = try await sftp.stat("/etc/hosts")
+try await sftp.setPermissions(0o644, at: "/etc/hosts")
+try await sftp.createDirectory("/tmp/staging", permissions: 0o755)
+try await sftp.rename("/tmp/old", to: "/tmp/new")
+try await sftp.createSymbolicLink("/tmp/link", targetPath: "/tmp/new")
+
+// Transfers with progress
+try await sftp.upload(
+    localURL: URL(fileURLWithPath: "/Users/me/release.zip"),
+    to: "/srv/release.zip"
+) { sent, total in
+    print("\(sent) / \(total)")
+}
+try await sftp.resumeDownload(
+    remotePath: "/srv/release.zip",
+    to: URL(fileURLWithPath: "/Users/me/release.zip")
+)
+</code></pre>
+<p><code>resumeUpload</code> and <code>resumeDownload</code> continue from the current local file size. Task cancellation tears down the underlying connection &mdash; subsequent operations on the same <code>SFTPClient</code> will fail.</p>
+
+<h2 id="scp">SCP</h2>
+<p>SCP helpers are <code>public extension SSHConnection</code> &mdash; there is no separate <code>SCPClient</code> type. They open a one-shot streamed command and speak the SCP protocol over it.</p>
+<pre><code class="language-swift">try await connection.uploadFileWithSCP(
+    localURL: URL(fileURLWithPath: "/Users/me/release.zip"),
+    toRemotePath: "/srv/release.zip",
+    permissions: 0o644,
+    maximumSize: 64 * 1024 * 1024
+)
+
+try await connection.downloadFileWithSCP(
+    remotePath: "/srv/release.zip",
+    toLocalURL: URL(fileURLWithPath: "/Users/me/release.zip"),
+    maximumSize: 64 * 1024 * 1024
+)
+</code></pre>
+<p>SCP is a single-file path. <code>maximumSize</code> guards against runaway transfers and defaults to 64&nbsp;MiB. Use SFTP for directory recursion, large transfers, or progress callbacks.</p>
+
+<h2 id="forwarding">Forwarding &amp; tunnels</h2>
+
+<h3>Direct TCP channel</h3>
+<pre><code class="language-swift">let channel = try await connection.openDirectTCPChannel(
+    host: "10.0.0.5",
+    port: 6379
+)
+try await channel.write(Data("PING\r\n".utf8))
+let reply = try await channel.read(maximumLength: 64 * 1024)
+try await channel.close()
+</code></pre>
+
+<h3>Local forward (-L)</h3>
+<pre><code class="language-swift">let forward = try await connection.startLocalForward(
+    localHost: "127.0.0.1",
+    localPort: 0,        // 0 = pick a free port
+    remoteHost: "db.internal",
+    remotePort: 5432
+)
+print("listening on \(forward.boundHost):\(forward.boundPort)")
+try await forward.close()
+</code></pre>
+
+<h3>Remote forward (-R)</h3>
+<pre><code class="language-swift">let forward = try await connection.startRemoteForward(
+    remoteHost: "127.0.0.1",
+    remotePort: 0,
+    localHost: "127.0.0.1",
+    localPort: 8080
+)
+</code></pre>
+
+<h3>Dynamic SOCKS (-D)</h3>
+<pre><code class="language-swift">let socks = try await connection.startDynamicForward(
+    localHost: "127.0.0.1",
+    localPort: 0,
+    username: nil,
+    password: nil
+)
+print("SOCKS5 endpoint: \(socks.boundHost):\(socks.boundPort)")
+</code></pre>
+<p>All forward objects expose the actually-bound <code>boundHost</code> / <code>boundPort</code>, useful when you passed <code>0</code> to let the kernel pick.</p>
+
+<h2 id="proxy">Proxy routes</h2>
+<p>Set <code>proxyRoute</code> on the configuration to reach the SSH endpoint through a SOCKS5 proxy, an HTTP CONNECT proxy, or another SSH host (ProxyJump).</p>
+<pre><code class="language-swift">// SOCKS5
+configuration.proxyRoute = .socks5(SSHProxyEndpoint(
+    host: "proxy.example",
+    port: 1080,
+    username: "u",
+    password: "p"
+))
+
+// HTTP CONNECT
+configuration.proxyRoute = .httpConnect(SSHProxyEndpoint(
+    host: "proxy.example",
+    port: 8080
+))
+
+// ProxyJump (jump host has full SSH credentials)
+configuration.proxyRoute = .proxyJump(SSHJumpHost(
+    host: "bastion.example",
+    port: 22,
+    username: "deploy",
+    authentication: .agent(),
+    hostKeyPolicy: .knownHostsFile("/Users/me/.ssh/known_hosts")
+))
+</code></pre>
+
+<h2 id="diagnostics">Diagnostics &amp; logging</h2>
+<p>Attach an <code>SSHLogHandler</code> to receive structured events as they happen. The handler is invoked off the worker queue.</p>
+<pre><code class="language-swift">let recorder = SSHLogRecorder(capacity: 200)
+configuration.logHandler = { event in recorder.record(event) }
+
+let connection = try await SSHClient.connect(configuration: configuration)
+
+// At any point, snapshot the redacted view:
+let report = connection.diagnosticReport(
+    phase: "post-connect",
+    metadata: ["build": "1.2.3"],
+    recentEvents: recorder.events
+)
+</code></pre>
+<p><code>SSHLogRecorder</code> stores events as a fixed-capacity ring of <em>redacted</em> entries (keys containing <em>password</em>, <em>passphrase</em>, <em>secret</em>, <em>token</em>, or <em>privatekey</em> are scrubbed). The diagnostic report does the same scrubbing before returning.</p>
+
+<h3>Algorithm profile</h3>
+<pre><code class="language-swift">// Built-ins:
+configuration.algorithmProfile = .modern        // libssh defaults + RSA >= 3072
+configuration.algorithmProfile = .legacyRSA     // opts back into ssh-rsa, RSA >= 1024
+
+// Custom (lists are passed straight to libssh; +/-/^ modifiers work):
+configuration.algorithmProfile = SSHAlgorithmProfile(
+    keyExchangeAlgorithms: "curve25519-sha256",
+    macsClientToServer: "+hmac-sha2-512-etm@openssh.com",
+    minimumRSAKeySize: 2048
+)
+
+// Inspect what libssh actually negotiates:
+let snapshot = try configuration.algorithmProfile.inspectEffectiveAlgorithms()
+print(snapshot.keyExchangeAlgorithms)
+</code></pre>
+
+<h2 id="latency">Latency probe</h2>
+<pre><code class="language-swift">let report = try await SSHPortLatencyProbe.measure(
+    configuration: configuration,
+    serviceCommand: "true"
+)
+print("connect=\(report.connectDuration)s service=\(report.sshServiceDuration)s total=\(report.totalDuration)s")
+</code></pre>
+<p>The probe connects, runs <code>serviceCommand</code>, and disconnects. The returned report includes the active <code>route</code> (direct, SOCKS5, HTTP CONNECT, or ProxyJump).</p>
+
+<h2 id="keys">Key generation</h2>
+<pre><code class="language-swift">let pair = try SSHKeyGenerator.generateOpenSSHKeyPair(
+    type: .ed25519,
+    comment: "deploy@laptop",
+    passphrase: nil
+)
+print(pair.authorizedKey)    // append to ~/.ssh/authorized_keys
+print(pair.privateKeyOpenSSH) // OpenSSH PEM
+</code></pre>
+<p>Available types: <code>.ed25519</code>, <code>.rsa(bits:)</code> (default 3072), <code>.ecdsaP256</code>, <code>.ecdsaP384</code>, <code>.ecdsaP521</code>.</p>
+
+<footer>
+SSHKit · <a href="https://github.com/Lakr233/SSHKit">github.com/Lakr233/SSHKit</a>
+</footer>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/highlight.min.js"
+        integrity="sha384-GdEWAbCjn+ghjX0gLx7/N1hyTVmPAjdC2OvoAA0RyNcAOhqwtT8qnbCxWle2+uJX"
+        crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/languages/swift.min.js"
+        integrity="sha384-TfALNLT6HJzZieazgsVvFM0DzFWQsgl0d7mdwPLyg1yg7XE4QwLY4jqmJRNnI1S4"
+        crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/languages/objectivec.min.js"
+        integrity="sha384-evxKJTmk5AChNAzYM6uh+DVNAm7QCNu2x/OynLEpbH+h/TVMellCIci2K+uvXWID"
+        crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/languages/bash.min.js"
+        integrity="sha384-83HvQQdGTWqnRLmgm19NjCb1+/awKJGytUX9sm3HJb2ddZ9Fs1Bst2bZogFjt9rr"
+        crossorigin="anonymous"></script>
+<script>hljs.highlightAll();</script>
+</body>
+</html>

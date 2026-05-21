@@ -3,6 +3,7 @@
 #import "SSHCoreOpenSSHClient.h"
 #import "SSHCoreSessionWorker.h"
 #import "SSHKitCommand+Private.h"
+#import "SSHKitPortForward+Private.h"
 #import "SSHKitSFTPClient+Private.h"
 #import "SSHKitShell+Private.h"
 #import "SSHKitTunnelChannel+Private.h"
@@ -421,6 +422,26 @@
 
 @end
 
+@implementation SSHKitPortForward
+
+- (instancetype)initWithBoundHost:(NSString *)boundHost
+                         boundPort:(uint16_t)boundPort
+                         closeBlock:(SSHKitPortForwardCloseBlock)closeBlock {
+    self = [super init];
+    if (self) {
+        _boundHost = [boundHost copy];
+        _boundPort = boundPort;
+        _closeBlock = [closeBlock copy];
+    }
+    return self;
+}
+
+- (void)closeWithCompletion:(SSHKitCompletion)completion {
+    self.closeBlock(completion);
+}
+
+@end
+
 @implementation SSHKitConnection
 
 - (instancetype)initWithConfiguration:(SSHKitConfiguration *)configuration {
@@ -650,6 +671,39 @@
     }];
 }
 
+- (void)startLocalForwardFromHost:(NSString *)localHost
+                              port:(uint16_t)localPort
+                            toHost:(NSString *)remoteHost
+                        targetPort:(uint16_t)remotePort
+                        completion:(SSHKitPortForwardCompletion)completion {
+    NSParameterAssert(localHost.length > 0);
+    NSParameterAssert(remoteHost.length > 0);
+    NSParameterAssert(remotePort > 0);
+
+    [self.worker async:^{
+        if (self.worker.state != SSHCoreSessionStateReady) {
+            NSError *error = SSHKitMakeError(SSHKitErrorCodeInvalidState, @"SSH session is not connected.");
+            [self completePortForwardOnDefaultQueue:completion forward:nil error:error];
+            return;
+        }
+
+        NSError *error = nil;
+        [self.worker transitionToState:SSHCoreSessionStateRunningTunnel];
+        SSHKitPortForward *forward = [self.client startLocalForwardFromHost:localHost port:localPort toHost:remoteHost targetPort:remotePort closeHandler:^{
+            if (self.worker.state == SSHCoreSessionStateRunningTunnel) {
+                [self.worker transitionToState:SSHCoreSessionStateReady];
+            }
+        } error:&error];
+        if (!forward) {
+            [self.worker transitionToState:SSHCoreSessionStateReady];
+            [self completePortForwardOnDefaultQueue:completion forward:nil error:error];
+            return;
+        }
+
+        [self completePortForwardOnDefaultQueue:completion forward:forward error:nil];
+    }];
+}
+
 - (void)disconnectWithCompletion:(SSHKitCompletion)completion {
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
         [self.client cancelCurrentTask];
@@ -735,6 +789,14 @@
                                       error:(NSError *)error {
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
         completion(channel, error);
+    });
+}
+
+- (void)completePortForwardOnDefaultQueue:(SSHKitPortForwardCompletion)completion
+                                  forward:(SSHKitPortForward *)forward
+                                    error:(NSError *)error {
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
+        completion(forward, error);
     });
 }
 

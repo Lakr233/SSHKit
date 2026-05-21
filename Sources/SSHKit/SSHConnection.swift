@@ -260,6 +260,62 @@ public final class SSHConnection: @unchecked Sendable {
         }
     }
 
+    public func startLocalForward(
+        localHost: String = "127.0.0.1",
+        localPort: UInt16 = 0,
+        remoteHost: String,
+        remotePort: UInt16,
+        callbackQueue: DispatchQueue = .main,
+        completion: @escaping (Result<SSHPortForward, SSHKitError>) -> Void,
+    ) {
+        precondition(localHost.isEmpty == false, "Local forward bind host must not be empty.")
+        precondition(remoteHost.isEmpty == false, "Local forward target host must not be empty.")
+        precondition(remotePort > 0, "Local forward target port must be greater than zero.")
+
+        session.startLocalForward(
+            fromHost: localHost,
+            port: localPort,
+            toHost: remoteHost,
+            targetPort: remotePort,
+        ) { forward, error in
+            if let error = error as NSError? {
+                callbackQueue.async {
+                    completion(.failure(SSHKitError(error)))
+                }
+                return
+            }
+
+            guard let forward else {
+                callbackQueue.async {
+                    completion(.failure(SSHKitError(code: SSHKitErrorCode.unavailable.rawValue, message: "Local forward started without a forward object.")))
+                }
+                return
+            }
+
+            callbackQueue.async {
+                completion(.success(SSHPortForward(forward: forward)))
+            }
+        }
+    }
+
+    public func startLocalForward(
+        localHost: String = "127.0.0.1",
+        localPort: UInt16 = 0,
+        remoteHost: String,
+        remotePort: UInt16,
+    ) async throws -> SSHPortForward {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                startLocalForward(localHost: localHost, localPort: localPort, remoteHost: remoteHost, remotePort: remotePort, callbackQueue: .global()) { result in
+                    continuation.resume(with: result)
+                }
+            }
+        } onCancel: {
+            close(callbackQueue: .global()) { _ in
+            }
+        }
+    }
+
     public func openShell(
         terminalType: String = "xterm-256color",
         columns: UInt16 = 80,

@@ -185,11 +185,21 @@ typedef void (^SSHKitTunnelReadCompletion)(NSData *_Nullable data, NSError *_Nul
 
 @end
 
+@interface SSHKitPortForward : NSObject
+
+@property (nonatomic, copy, readonly) NSString *boundHost;
+@property (nonatomic, readonly) uint16_t boundPort;
+
+- (void)closeWithCompletion:(SSHKitCompletion)completion;
+
+@end
+
 typedef void (^SSHKitCommandCompletion)(SSHKitCommandResult *_Nullable result, NSError *_Nullable error);
 typedef void (^SSHKitStreamingCommandCompletion)(SSHKitCommand *_Nullable command, NSError *_Nullable error);
 typedef void (^SSHKitShellCompletion)(SSHKitShell *_Nullable shell, NSError *_Nullable error);
 typedef void (^SSHKitSFTPCompletion)(SSHKitSFTPClient *_Nullable client, NSError *_Nullable error);
 typedef void (^SSHKitTunnelChannelCompletion)(SSHKitTunnelChannel *_Nullable channel, NSError *_Nullable error);
+typedef void (^SSHKitPortForwardCompletion)(SSHKitPortForward *_Nullable forward, NSError *_Nullable error);
 typedef void (^SSHKitAuthenticationDiscoveryCompletion)(SSHKitAuthenticationDiscoveryResult *_Nullable result, NSError *_Nullable error);
 
 @interface SSHKitConnection : NSObject
@@ -213,6 +223,11 @@ typedef void (^SSHKitAuthenticationDiscoveryCompletion)(SSHKitAuthenticationDisc
 - (void)openDirectTCPChannelToHost:(NSString *)host
                               port:(uint16_t)port
                         completion:(SSHKitTunnelChannelCompletion)completion;
+- (void)startLocalForwardFromHost:(NSString *)localHost
+                              port:(uint16_t)localPort
+                            toHost:(NSString *)remoteHost
+                        targetPort:(uint16_t)remotePort
+                        completion:(SSHKitPortForwardCompletion)completion;
 - (void)disconnectWithCompletion:(SSHKitCompletion)completion;
 
 @end

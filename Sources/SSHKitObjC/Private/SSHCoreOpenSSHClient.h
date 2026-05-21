@@ -6,6 +6,7 @@
 @class SSHKitCommand;
 @class SSHKitShell;
 @class SSHKitSFTPClient;
+@class SSHKitPortForward;
 @class SSHKitTunnelChannel;
 @class SSHCoreSessionWorker;
 
@@ -38,6 +39,12 @@ NS_ASSUME_NONNULL_BEGIN
                                                        port:(uint16_t)port
                                                closeHandler:(SSHCoreTunnelCloseHandler)closeHandler
                                                       error:(NSError **)error;
+- (nullable SSHKitPortForward *)startLocalForwardFromHost:(NSString *)localHost
+                                                     port:(uint16_t)localPort
+                                                   toHost:(NSString *)remoteHost
+                                               targetPort:(uint16_t)remotePort
+                                             closeHandler:(SSHCoreTunnelCloseHandler)closeHandler
+                                                    error:(NSError **)error;
 - (void)cancelCurrentTask;
 - (void)cancelCurrentTaskAndWaitUntilExit;
 - (void)closeSession;

@@ -78,6 +78,9 @@
     copy.identityAgentPath = self.identityAgentPath;
     copy.hostKeyPolicyKind = self.hostKeyPolicyKind;
     copy.knownHostsPath = self.knownHostsPath;
+    copy.pinnedHostKeySHA256Fingerprint = self.pinnedHostKeySHA256Fingerprint;
+    copy.trustedHostKeySHA256Fingerprint = self.trustedHostKeySHA256Fingerprint;
+    copy.hostKeyTrustStoreError = self.hostKeyTrustStoreError;
     copy.timeout = self.timeout;
     copy.logHandler = self.logHandler;
     copy.proxyRouteKind = self.proxyRouteKind;

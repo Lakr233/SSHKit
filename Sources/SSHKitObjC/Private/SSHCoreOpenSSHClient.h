@@ -19,6 +19,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface SSHCoreOpenSSHClient : NSObject
 
+@property (nonatomic, copy, nullable, readonly) NSString *hostKeySHA256Fingerprint;
+
 - (instancetype)initWithConfiguration:(SSHKitConfiguration *)configuration worker:(SSHCoreSessionWorker *)worker;
 - (BOOL)verifyConnectionWithError:(NSError **)error;
 - (nullable SSHKitAuthenticationDiscoveryResult *)discoverAuthenticationMethodsWithError:(NSError **)error;

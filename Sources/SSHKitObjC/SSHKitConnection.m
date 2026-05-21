@@ -444,6 +444,10 @@
 
 @implementation SSHKitConnection
 
+- (NSString *)hostKeySHA256Fingerprint {
+    return self.client.hostKeySHA256Fingerprint;
+}
+
 - (instancetype)initWithConfiguration:(SSHKitConfiguration *)configuration {
     self = [super init];
     if (self) {

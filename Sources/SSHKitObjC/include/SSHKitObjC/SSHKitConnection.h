@@ -205,6 +205,7 @@ typedef void (^SSHKitAuthenticationDiscoveryCompletion)(SSHKitAuthenticationDisc
 @interface SSHKitConnection : NSObject
 
 @property (nonatomic, copy, readonly) SSHKitConfiguration *configuration;
+@property (nonatomic, copy, nullable, readonly) NSString *hostKeySHA256Fingerprint;
 
 - (instancetype)initWithConfiguration:(SSHKitConfiguration *)configuration;
 - (void)connectWithCompletion:(SSHKitCompletion)completion;

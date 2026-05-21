@@ -47,6 +47,16 @@ extension SSHClientConfiguration {
         case let .knownHostsFile(path):
             configuration.hostKeyPolicyKind = .knownHostsFile
             configuration.knownHostsPath = path
+        case let .pinnedFingerprint(fingerprint):
+            configuration.hostKeyPolicyKind = .pinnedFingerprint
+            configuration.pinnedHostKeySHA256Fingerprint = fingerprint.rawValue
+        case let .trustStore(store):
+            configuration.hostKeyPolicyKind = .trustedFingerprint
+            do {
+                configuration.trustedHostKeySHA256Fingerprint = try store.fingerprint(host: host, port: port)?.rawValue
+            } catch {
+                configuration.hostKeyTrustStoreError = error.localizedDescription
+            }
         }
 
         switch proxyRoute {

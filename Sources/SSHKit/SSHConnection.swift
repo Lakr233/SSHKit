@@ -10,6 +10,10 @@ public final class SSHConnection: @unchecked Sendable {
         self.configuration = configuration
     }
 
+    public var hostKeyFingerprint: SSHHostKeyFingerprint? {
+        session.hostKeySHA256Fingerprint.map(SSHHostKeyFingerprint.init)
+    }
+
     public func diagnosticReport(
         phase: String = "connected",
         metadata: [String: String] = [:],

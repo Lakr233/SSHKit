@@ -30,6 +30,55 @@
 static const int32_t SSHCoreAbnormalExitStatus = -1;
 static const uint64_t SSHCoreSFTPMaximumReadFileSize = 64 * 1024 * 1024;
 
+static NSString *SSHCoreNormalizeSHA256Fingerprint(NSString *fingerprint) {
+    NSString *trimmed = [fingerprint stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (trimmed.length == 0) {
+        return @"";
+    }
+    if ([trimmed rangeOfString:@"SHA256:" options:NSCaseInsensitiveSearch].location == 0) {
+        return trimmed;
+    }
+    return [@"SHA256:" stringByAppendingString:trimmed];
+}
+
+static NSString *SSHCoreSHA256FingerprintForSession(ssh_session session) {
+    ssh_key key = NULL;
+    unsigned char *hash = NULL;
+    size_t hashLength = 0;
+    char *fingerprint = NULL;
+    NSString *result = nil;
+
+    if (ssh_get_server_publickey(session, &key) != SSH_OK || key == NULL) {
+        goto cleanup;
+    }
+    if (ssh_get_publickey_hash(key, SSH_PUBLICKEY_HASH_SHA256, &hash, &hashLength) != SSH_OK || hash == NULL) {
+        goto cleanup;
+    }
+    fingerprint = ssh_get_fingerprint_hash(SSH_PUBLICKEY_HASH_SHA256, hash, hashLength);
+    if (fingerprint == NULL) {
+        goto cleanup;
+    }
+    result = @(fingerprint);
+
+cleanup:
+    if (fingerprint != NULL) {
+        SSH_STRING_FREE_CHAR(fingerprint);
+    }
+    if (hash != NULL) {
+        ssh_clean_pubkey_hash(&hash);
+    }
+    if (key != NULL) {
+        ssh_key_free(key);
+    }
+    return result;
+}
+
+static BOOL SSHCoreFingerprintMatches(NSString *actualFingerprint, NSString *expectedFingerprint) {
+    NSString *actual = SSHCoreNormalizeSHA256Fingerprint(actualFingerprint);
+    NSString *expected = SSHCoreNormalizeSHA256Fingerprint(expectedFingerprint);
+    return actual.length > 0 && expected.length > 0 && [actual isEqualToString:expected];
+}
+
 static BOOL SSHCoreSetAlgorithmString(ssh_session session, enum ssh_options_e option, NSString *value, NSString *name, NSString **failedField) {
     if (value.length == 0) {
         return YES;
@@ -97,6 +146,16 @@ static int SSHCoreProxyJumpVerifyKnownHost(ssh_session session, void *userdata) 
     SSHKitConfiguration *configuration = (__bridge SSHKitConfiguration *)userdata;
     if (configuration.hostKeyPolicyKind == SSHKitHostKeyPolicyKindInsecureAcceptAnyHostKey) {
         return SSH_OK;
+    }
+    NSString *fingerprint = SSHCoreSHA256FingerprintForSession(session);
+    if (configuration.hostKeyPolicyKind == SSHKitHostKeyPolicyKindPinnedFingerprint) {
+        return SSHCoreFingerprintMatches(fingerprint, configuration.pinnedHostKeySHA256Fingerprint) ? SSH_OK : SSH_ERROR;
+    }
+    if (configuration.hostKeyPolicyKind == SSHKitHostKeyPolicyKindTrustedFingerprint) {
+        return configuration.hostKeyTrustStoreError.length == 0 &&
+               SSHCoreFingerprintMatches(fingerprint, configuration.trustedHostKeySHA256Fingerprint)
+                   ? SSH_OK
+                   : SSH_ERROR;
     }
     return ssh_session_is_known_server(session) == SSH_KNOWN_HOSTS_OK ? SSH_OK : SSH_ERROR;
 }
@@ -222,6 +281,10 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
             return @"insecureAcceptAnyHostKey";
         case SSHKitHostKeyPolicyKindKnownHostsFile:
             return @"knownHostsFile";
+        case SSHKitHostKeyPolicyKindPinnedFingerprint:
+            return @"pinnedFingerprint";
+        case SSHKitHostKeyPolicyKindTrustedFingerprint:
+            return @"trustedFingerprint";
     }
 }
 
@@ -2426,6 +2489,7 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
 @property (nonatomic) ssh_session session;
 @property (nonatomic) NSMutableArray<NSValue *> *proxyJumpCallbackPointers;
 @property (nonatomic, copy) NSArray<SSHKitConfiguration *> *proxyJumpCallbackConfigurations;
+@property (nonatomic, copy, readwrite, nullable) NSString *hostKeySHA256Fingerprint;
 
 @end
 
@@ -3606,12 +3670,65 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
 }
 
 - (BOOL)verifyLibSSHHostKeyForSession:(ssh_session)session error:(NSError **)error {
-    [self emitLogLevel:SSHKitLogLevelInfo phase:@"trust" message:@"SSH host key verification started." metadata:@{}];
+    NSString *fingerprint = SSHCoreSHA256FingerprintForSession(session);
+    self.hostKeySHA256Fingerprint = fingerprint;
+    NSDictionary<NSString *, NSString *> *fingerprintMetadata = fingerprint.length > 0 ? @{@"fingerprint": fingerprint} : @{};
+    [self emitLogLevel:SSHKitLogLevelInfo phase:@"trust" message:@"SSH host key verification started." metadata:fingerprintMetadata];
     if (self.configuration.hostKeyPolicyKind == SSHKitHostKeyPolicyKindInsecureAcceptAnyHostKey) {
         [self emitLogLevel:SSHKitLogLevelWarning
                      phase:@"trust"
                    message:@"SSH host key accepted by insecure policy."
-                  metadata:@{@"policy": @"insecureAcceptAnyHostKey"}];
+                  metadata:fingerprint.length > 0
+                               ? @{@"policy": @"insecureAcceptAnyHostKey", @"fingerprint": fingerprint}
+                               : @{@"policy": @"insecureAcceptAnyHostKey"}];
+        return YES;
+    }
+
+    if (self.configuration.hostKeyPolicyKind == SSHKitHostKeyPolicyKindPinnedFingerprint) {
+        if (fingerprint.length == 0 || !SSHCoreFingerprintMatches(fingerprint, self.configuration.pinnedHostKeySHA256Fingerprint)) {
+            if (error) {
+                *error = SSHKitMakeError(SSHKitErrorCodeHostKeyVerificationFailed, @"Pinned host key fingerprint did not match the server host key.");
+            }
+            [self emitLogLevel:SSHKitLogLevelError
+                         phase:@"trust"
+                       message:@"SSH pinned host key verification failed."
+                      metadata:fingerprint.length > 0 ? @{@"fingerprint": fingerprint} : @{}];
+            return NO;
+        }
+        [self emitLogLevel:SSHKitLogLevelInfo
+                     phase:@"trust"
+                   message:@"SSH pinned host key verification succeeded."
+                  metadata:@{@"fingerprint": fingerprint}];
+        return YES;
+    }
+
+    if (self.configuration.hostKeyPolicyKind == SSHKitHostKeyPolicyKindTrustedFingerprint) {
+        if (self.configuration.hostKeyTrustStoreError.length > 0) {
+            if (error) {
+                *error = SSHKitMakeError(SSHKitErrorCodeHostKeyVerificationFailed, [NSString stringWithFormat:@"Host trust store failed to load trusted fingerprint: %@.", self.configuration.hostKeyTrustStoreError]);
+            }
+            return NO;
+        }
+        if (self.configuration.trustedHostKeySHA256Fingerprint.length == 0) {
+            if (error) {
+                *error = SSHKitMakeError(SSHKitErrorCodeHostKeyVerificationFailed, @"Host trust store has no trusted fingerprint for this host and port.");
+            }
+            return NO;
+        }
+        if (fingerprint.length == 0 || !SSHCoreFingerprintMatches(fingerprint, self.configuration.trustedHostKeySHA256Fingerprint)) {
+            if (error) {
+                *error = SSHKitMakeError(SSHKitErrorCodeHostKeyVerificationFailed, @"Trusted host key fingerprint did not match the server host key.");
+            }
+            [self emitLogLevel:SSHKitLogLevelError
+                         phase:@"trust"
+                       message:@"SSH trust-store host key verification failed."
+                      metadata:fingerprint.length > 0 ? @{@"fingerprint": fingerprint} : @{}];
+            return NO;
+        }
+        [self emitLogLevel:SSHKitLogLevelInfo
+                     phase:@"trust"
+                   message:@"SSH trust-store host key verification succeeded."
+                  metadata:@{@"fingerprint": fingerprint}];
         return YES;
     }
 
@@ -3620,7 +3737,9 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
         [self emitLogLevel:SSHKitLogLevelInfo
                      phase:@"trust"
                    message:@"SSH host key verification succeeded."
-                  metadata:@{@"knownHostsState": [NSString stringWithFormat:@"%d", state]}];
+                  metadata:fingerprint.length > 0
+                               ? @{@"knownHostsState": [NSString stringWithFormat:@"%d", state], @"fingerprint": fingerprint}
+                               : @{@"knownHostsState": [NSString stringWithFormat:@"%d", state]}];
         return YES;
     }
 

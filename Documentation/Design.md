@@ -94,15 +94,17 @@ Objective-C internal names use the `SSHCore` prefix:
 Swift async APIs are the primary application surface:
 
 ```swift
+let trustStore = SSHKeychainHostTrustStore(service: "wiki.qaq.sshkit")
 let configuration = SSHClient.Configuration(
     host: "example.com",
     username: "deploy",
     authentication: .password("secret"),
-    hostKeyPolicy: .trustStore(.keychain(service: "wiki.qaq.sshkit"))
+    hostKeyPolicy: .trustStore(trustStore)
 )
 
 let connection = try await SSHClient.connect(configuration)
 let result = try await connection.execute("uname -a")
+let hostKeyFingerprint = connection.hostKeyFingerprint
 try await connection.close()
 ```
 
@@ -288,20 +290,18 @@ Host trust is explicit and injectable.
 Swift:
 
 ```swift
-public enum SSHHostKeyPolicy {
+public enum SSHHostKeyPolicy: Sendable {
     case knownHostsFile(String)
-    case trustStore(HostTrustStore)
-    case pinnedFingerprint(String)
+    case trustStore(any SSHHostTrustStore)
+    case pinnedFingerprint(SSHHostKeyFingerprint)
     case insecureAcceptAnyHostKey
 }
 ```
 
-Objective-C:
+Trust stores persist SHA-256 host-key fingerprints by host and port:
 
-- `SSHKitHostKeyPolicy`
-- `SSHKitHostTrustStore`
-- `SSHKitKeychainTrustStore`
-- `SSHKitMemoryTrustStore`
+- `SSHMemoryHostTrustStore`
+- `SSHKeychainHostTrustStore`
 
 Default Keychain service:
 
@@ -309,9 +309,9 @@ Default Keychain service:
 wiki.qaq.sshkit
 ```
 
-The default store uses Keychain-backed persistence. Applications may inject their own store implementation. KeychainAccess is an acceptable Swift dependency for the default Keychain-backed store. Direct Security.framework usage remains available inside Objective-C where lower-level control is useful.
+The default store uses Keychain-backed persistence. Applications may inject any `SSHHostTrustStore` implementation. If a trust store cannot load a trusted fingerprint or has no entry for the host and port, connection setup returns a host-key verification error.
 
-`insecureAcceptAnyHostKey` is an explicit policy. It should emit a warning log event and should be suitable for local tools, tests, and controlled disposable environments.
+`pinnedFingerprint` compares the server's SHA-256 host-key fingerprint directly. `insecureAcceptAnyHostKey` is an explicit policy that emits a warning log event and exposes the server fingerprint on the returned connection.
 
 ## Diagnostics
 

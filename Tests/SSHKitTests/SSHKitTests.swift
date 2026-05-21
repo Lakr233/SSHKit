@@ -71,6 +71,52 @@ import Testing
     #expect(configuration.identityAgentPath == "/tmp/agent.sock")
 }
 
+@Test func `host key fingerprint normalizes SHA256 prefix`() {
+    #expect(SSHHostKeyFingerprint("abc123").rawValue == "SHA256:abc123")
+    #expect(SSHHostKeyFingerprint("SHA256:abc123").rawValue == "SHA256:abc123")
+}
+
+@Test func `configuration bridge maps pinned fingerprint policy`() {
+    let configuration = SSHClientConfiguration(
+        host: "example.com",
+        username: "user",
+        authentication: .password("secret"),
+        hostKeyPolicy: .pinnedFingerprint(SSHHostKeyFingerprint("abc123")),
+    ).bridgeConfiguration
+
+    #expect(configuration.hostKeyPolicyKind == .pinnedFingerprint)
+    #expect(configuration.pinnedHostKeySHA256Fingerprint == "SHA256:abc123")
+}
+
+@Test func `configuration bridge maps memory trust store policy`() throws {
+    let store = SSHMemoryHostTrustStore()
+    try store.saveFingerprint(SSHHostKeyFingerprint("abc123"), host: "example.com", port: 2222)
+
+    let configuration = SSHClientConfiguration(
+        host: "example.com",
+        port: 2222,
+        username: "user",
+        authentication: .password("secret"),
+        hostKeyPolicy: .trustStore(store),
+    ).bridgeConfiguration
+
+    #expect(configuration.hostKeyPolicyKind == .trustedFingerprint)
+    #expect(configuration.trustedHostKeySHA256Fingerprint == "SHA256:abc123")
+}
+
+@Test func `configuration bridge surfaces missing trust store entry`() {
+    let configuration = SSHClientConfiguration(
+        host: "example.com",
+        port: 2222,
+        username: "user",
+        authentication: .password("secret"),
+        hostKeyPolicy: .trustStore(SSHMemoryHostTrustStore()),
+    ).bridgeConfiguration
+
+    #expect(configuration.hostKeyPolicyKind == .trustedFingerprint)
+    #expect(configuration.trustedHostKeySHA256Fingerprint == nil)
+}
+
 @Test func `authentication discovery maps Objective C methods`() {
     let result = SSHKitAuthenticationDiscoveryResult(
         methods: [
@@ -264,6 +310,17 @@ import Testing
 
     #expect(try store.password(account: account) == "secret")
     #expect(try store.privateKey(account: account) == credential)
+}
+
+@Test func `Keychain host trust store saves and loads fingerprints`() throws {
+    let store = SSHKeychainHostTrustStore(service: "wiki.qaq.sshkit.hostTrust.tests.\(UUID().uuidString)")
+    let fingerprint = SSHHostKeyFingerprint("abc123")
+
+    try store.saveFingerprint(fingerprint, host: "Example.COM", port: 2222)
+
+    #expect(try store.fingerprint(host: "example.com", port: 2222) == fingerprint)
+    try store.removeFingerprint(host: "example.com", port: 2222)
+    #expect(try store.fingerprint(host: "example.com", port: 2222) == nil)
 }
 
 @Test func `SCP validator rejects unsafe paths and filenames`() {

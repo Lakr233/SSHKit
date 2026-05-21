@@ -1,8 +1,10 @@
 import Foundation
 
-public enum SSHHostKeyPolicy: Equatable, Sendable {
+public enum SSHHostKeyPolicy: Sendable {
     case insecureAcceptAnyHostKey
     case knownHostsFile(String)
+    case pinnedFingerprint(SSHHostKeyFingerprint)
+    case trustStore(any SSHHostTrustStore)
 
     var diagnosticName: String {
         switch self {
@@ -10,6 +12,10 @@ public enum SSHHostKeyPolicy: Equatable, Sendable {
             "insecureAcceptAnyHostKey"
         case .knownHostsFile:
             "knownHostsFile"
+        case .pinnedFingerprint:
+            "pinnedFingerprint"
+        case .trustStore:
+            "trustStore"
         }
     }
 }

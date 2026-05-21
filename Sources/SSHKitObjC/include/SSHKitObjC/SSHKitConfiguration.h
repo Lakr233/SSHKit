@@ -29,6 +29,8 @@ typedef NSArray<NSString *> *_Nullable (^SSHKitKeyboardInteractiveResponder)(
 typedef NS_ENUM(NSInteger, SSHKitHostKeyPolicyKind) {
     SSHKitHostKeyPolicyKindInsecureAcceptAnyHostKey = 1,
     SSHKitHostKeyPolicyKindKnownHostsFile = 2,
+    SSHKitHostKeyPolicyKindPinnedFingerprint = 3,
+    SSHKitHostKeyPolicyKindTrustedFingerprint = 4,
 };
 
 typedef NS_ENUM(NSInteger, SSHKitLogLevel) {
@@ -75,6 +77,9 @@ typedef void (^SSHKitLogHandler)(SSHKitLogEvent *event);
 @property (nonatomic, copy, nullable) NSString *identityAgentPath;
 @property (nonatomic) SSHKitHostKeyPolicyKind hostKeyPolicyKind;
 @property (nonatomic, copy, nullable) NSString *knownHostsPath;
+@property (nonatomic, copy, nullable) NSString *pinnedHostKeySHA256Fingerprint;
+@property (nonatomic, copy, nullable) NSString *trustedHostKeySHA256Fingerprint;
+@property (nonatomic, copy, nullable) NSString *hostKeyTrustStoreError;
 @property (nonatomic) NSTimeInterval timeout;
 @property (nonatomic, copy, nullable) SSHKitLogHandler logHandler;
 @property (nonatomic) SSHKitProxyRouteKind proxyRouteKind;

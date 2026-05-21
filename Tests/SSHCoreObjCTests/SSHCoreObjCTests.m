@@ -1,8 +1,15 @@
 #import <XCTest/XCTest.h>
 
+#import <CLibSSH/CLibSSH.h>
+#import <SSHKitObjC/SSHKitClient.h>
+#import <SSHKitObjC/SSHKitConfiguration.h>
+#import <SSHKitObjC/SSHKitError.h>
+
 #import "SSHCoreCancellationToken.h"
+#import "SSHCoreOpenSSHClient.h"
 #import "SSHCoreSessionWorker.h"
 #import "SSHCoreSocketHandle.h"
+#import "SSHKitSFTPClient+Private.h"
 
 #include <sys/socket.h>
 #include <unistd.h>
@@ -10,7 +17,57 @@
 @interface SSHCoreObjCTests : XCTestCase
 @end
 
+@interface SSHCoreOpenSSHClient (SSHCoreObjCTests)
+- (NSError *)sftpErrorForOperation:(NSString *)operation status:(int)status;
+@end
+
 @implementation SSHCoreObjCTests
+
+- (void)testCLibSSHLinksAndCreatesSession {
+    XCTAssertGreaterThan(LIBSSH_VERSION_INT, 0);
+    ssh_session session = ssh_new();
+    XCTAssertNotEqual(session, NULL);
+    ssh_free(session);
+}
+
+- (void)testObjectiveCAuthenticationFacadeAppliesConfigurationFields {
+    SSHKitConfiguration *configuration = [[SSHKitConfiguration alloc] initWithHost:@"example.com" username:@"user"];
+    configuration.authentication = [SSHKitAuthentication privateKeyFileAtPath:@"/tmp/key" passphrase:@"secret"];
+
+    XCTAssertEqual(configuration.authenticationKind, SSHKitAuthenticationKindPrivateKeyFile);
+    XCTAssertEqualObjects(configuration.privateKeyPath, @"/tmp/key");
+    XCTAssertEqualObjects(configuration.privateKeyPassphrase, @"secret");
+}
+
+- (void)testObjectiveCHostTrustFacadeResolvesMemoryStoreForConnection {
+    SSHKitMemoryTrustStore *store = [[SSHKitMemoryTrustStore alloc] initWithFingerprints:nil];
+    NSError *error = nil;
+    XCTAssertTrue([store saveFingerprint:@"abc123" host:@"example.com" port:2222 error:&error]);
+    XCTAssertNil(error);
+
+    SSHKitConfiguration *configuration = [[SSHKitConfiguration alloc] initWithHost:@"example.com" username:@"user"];
+    configuration.port = 2222;
+    configuration.hostKeyPolicy = [SSHKitHostKeyPolicy trustStore:store];
+
+    SSHKitConnection *connection = [[SSHKitConnection alloc] initWithConfiguration:configuration];
+    XCTAssertEqual(connection.configuration.hostKeyPolicyKind, SSHKitHostKeyPolicyKindTrustedFingerprint);
+    XCTAssertEqualObjects(connection.configuration.trustedHostKeySHA256Fingerprint, @"SHA256:abc123");
+}
+
+- (void)testObjectiveCClientFacadeIsAvailable {
+    XCTAssertNotNil([SSHKitClient class]);
+}
+
+- (void)testObjectiveCLogRecorderBoundsEvents {
+    SSHKitLogRecorder *recorder = [[SSHKitLogRecorder alloc] initWithCapacity:2];
+    [recorder recordEvent:[[SSHKitLogEvent alloc] initWithLevel:SSHKitLogLevelInfo phase:@"connect" message:@"one" metadata:@{}]];
+    [recorder recordEvent:[[SSHKitLogEvent alloc] initWithLevel:SSHKitLogLevelInfo phase:@"auth" message:@"two" metadata:@{}]];
+    [recorder recordEvent:[[SSHKitLogEvent alloc] initWithLevel:SSHKitLogLevelWarning phase:@"trust" message:@"three" metadata:@{}]];
+
+    XCTAssertEqual(recorder.events.count, 2);
+    XCTAssertEqualObjects(recorder.events.firstObject.phase, @"auth");
+    XCTAssertEqualObjects(recorder.events.lastObject.phase, @"trust");
+}
 
 - (void)testWorkerAllowsDocumentedCommandLifecycle {
     SSHCoreSessionWorker *worker = [[SSHCoreSessionWorker alloc] init];
@@ -72,6 +129,64 @@
     XCTAssertTrue(token.cancelled);
     [token cancel];
     XCTAssertTrue(token.cancelled);
+}
+
+- (void)testSFTPStatusCodesMapToTypedErrors {
+    SSHKitConfiguration *configuration = [[SSHKitConfiguration alloc] initWithHost:@"example.com" username:@"user"];
+    SSHCoreSessionWorker *worker = [[SSHCoreSessionWorker alloc] init];
+    SSHCoreOpenSSHClient *client = [[SSHCoreOpenSSHClient alloc] initWithConfiguration:configuration worker:worker];
+
+    NSError *missingFile = [client sftpErrorForOperation:@"SFTP stat" status:SSH_FX_NO_SUCH_FILE];
+    XCTAssertEqualObjects(missingFile.domain, SSHKitErrorDomain);
+    XCTAssertEqual(missingFile.code, SSHKitErrorCodeSFTPFileNotFound);
+
+    NSError *permissionDenied = [client sftpErrorForOperation:@"SFTP write" status:SSH_FX_PERMISSION_DENIED];
+    XCTAssertEqualObjects(permissionDenied.domain, SSHKitErrorDomain);
+    XCTAssertEqual(permissionDenied.code, SSHKitErrorCodeSFTPPermissionDenied);
+
+    NSError *genericFailure = [client sftpErrorForOperation:@"SFTP read" status:SSH_FX_FAILURE];
+    XCTAssertEqualObjects(genericFailure.domain, SSHKitErrorDomain);
+    XCTAssertEqual(genericFailure.code, SSHKitErrorCodeSFTPFailure);
+}
+
+- (void)testSFTPFileHandleDelegatesReadWriteSeekAndClose {
+    XCTestExpectation *readExpectation = [self expectationWithDescription:@"read block called"];
+    XCTestExpectation *writeExpectation = [self expectationWithDescription:@"write block called"];
+    XCTestExpectation *seekExpectation = [self expectationWithDescription:@"seek block called"];
+    XCTestExpectation *closeExpectation = [self expectationWithDescription:@"close block called"];
+
+    SSHKitSFTPFileHandle *handle = [[SSHKitSFTPFileHandle alloc] initWithReadBlock:^(NSUInteger maximumLength, SSHKitSFTPDataCompletion completion) {
+        XCTAssertEqual(maximumLength, 16);
+        completion([@"chunk" dataUsingEncoding:NSUTF8StringEncoding], nil);
+        [readExpectation fulfill];
+    } writeBlock:^(NSData *data, SSHKitCompletion completion) {
+        XCTAssertEqualObjects(data, [@"payload" dataUsingEncoding:NSUTF8StringEncoding]);
+        completion(nil);
+        [writeExpectation fulfill];
+    } seekBlock:^(uint64_t offset, SSHKitCompletion completion) {
+        XCTAssertEqual(offset, 42);
+        completion(nil);
+        [seekExpectation fulfill];
+    } closeBlock:^(SSHKitCompletion completion) {
+        completion(nil);
+        [closeExpectation fulfill];
+    }];
+
+    [handle readDataWithMaximumLength:16 completion:^(NSData *data, NSError *error) {
+        XCTAssertNil(error);
+        XCTAssertEqualObjects(data, [@"chunk" dataUsingEncoding:NSUTF8StringEncoding]);
+    }];
+    [handle writeData:[@"payload" dataUsingEncoding:NSUTF8StringEncoding] completion:^(NSError *error) {
+        XCTAssertNil(error);
+    }];
+    [handle seekToOffset:42 completion:^(NSError *error) {
+        XCTAssertNil(error);
+    }];
+    [handle closeWithCompletion:^(NSError *error) {
+        XCTAssertNil(error);
+    }];
+
+    [self waitForExpectationsWithTimeout:2 handler:nil];
 }
 
 - (void)testRequestCloseFromIdleIsIdempotent {

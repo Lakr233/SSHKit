@@ -2,6 +2,8 @@
 
 This roadmap lists the implementation plan for the confirmed SSHKit design.
 
+MVP status: P0 through P4 are implemented in the current MVP branch. Remaining release validation requires running `Script/test-live-fixture.sh` with the external fixture environment.
+
 ## P0: Foundation
 
 Deliver the package foundation and the first reliable command path.
@@ -43,7 +45,7 @@ Deliver interactive terminal use and clear support diagnostics.
 - Implement shell stdin writes.
 - Implement shell stdout and stderr events.
 - Implement PTY resize.
-- Implement EOF and signal requests.
+- Implement streamed command EOF handling and exit signal metadata.
 - Implement keyboard-interactive authentication.
 - Implement authentication method discovery.
 - Add structured log events.
@@ -104,7 +106,7 @@ Deliver advanced integration and tooling.
 - Implement legacy RSA opt-in.
 - Implement custom algorithm profile configuration.
 - Implement latency measurement tools.
-- Add broader compatibility validation against OpenSSH, Dropbear, and common proxy setups.
+- Add live compatibility validation against OpenSSH, Dropbear, legacy RSA, and common proxy setups.
 - Add release packaging and multi-destination CI.
 
 ## Permanent Architecture Rules

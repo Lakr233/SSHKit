@@ -14,9 +14,40 @@ export SSHKIT_LIVE_USERNAME="root"
 export SSHKIT_LIVE_PASSWORD="<password>"
 export SSHKIT_LIVE_KNOWN_HOSTS="<known-hosts-entry>"
 export SSHKIT_LIVE_PRIVATE_KEY="<private-key-pem>"
+export SSHKIT_LIVE_REMOTE_SSHD_PORT="22"
+export SSHKIT_LEGACY_RSA_HOST="legacy-rsa.example.com"
+export SSHKIT_LEGACY_RSA_PORT="22"
+export SSHKIT_LEGACY_RSA_USERNAME="root"
+export SSHKIT_LEGACY_RSA_PASSWORD="<password>"
+export SSHKIT_LEGACY_RSA_KNOWN_HOSTS="<known-hosts-entry>"
+export SSHKIT_DROPBEAR_HOST="dropbear.example.com"
+export SSHKIT_DROPBEAR_PORT="22"
+export SSHKIT_DROPBEAR_USERNAME="root"
+export SSHKIT_DROPBEAR_PASSWORD="<password>"
+export SSHKIT_DROPBEAR_KNOWN_HOSTS="<known-hosts-entry>"
 ```
 
-`SSHKIT_LIVE_KNOWN_HOSTS` should contain one complete OpenSSH known-hosts line. `SSHKIT_LIVE_PRIVATE_KEY` should contain a private key accepted by the fixture user.
+Each known-hosts value should contain one complete OpenSSH known-hosts line. `SSHKIT_LIVE_PRIVATE_KEY` should contain a private key accepted by the Alpine fixture user. `SSHKIT_LIVE_REMOTE_SSHD_PORT` is optional and defaults to `22`; it is the SSH port visible from inside the fixture host for direct TCP, local forward, and dynamic SOCKS tests. The legacy RSA fixture uses `SSHAlgorithmProfile.legacyRSA`, password authentication, known-host verification, and a real exec channel. The Dropbear fixture uses password authentication, known-host verification, and a real exec channel.
+
+## Current Alpine Container Topology
+
+The current shared Alpine fixture runs OpenSSH in a Docker container and publishes the container's port `22` as host port `7422`:
+
+```yaml
+services:
+  ssh:
+    build: .
+    container_name: sshkit-alpine-fixture
+    restart: unless-stopped
+    ports:
+      - "7422:22"
+    env_file:
+      - .env
+    volumes:
+      - ./authorized_keys:/fixture/authorized_keys:ro
+```
+
+For that topology, set `SSHKIT_LIVE_PORT=7422` for the client connection from the developer machine, and keep `SSHKIT_LIVE_REMOTE_SSHD_PORT=22` for fixture-internal loopback targets such as `127.0.0.1:22`. The fixture `.env` file owns the root password and stays outside the repository.
 
 ## Fixture Requirements
 
@@ -24,10 +55,31 @@ The server should support:
 
 - password authentication
 - public-key authentication
+- keyboard-interactive authentication
+- authentication failure for wrong-password attempts
 - exec channels
 - PTY shell channels
 - SFTP subsystem
+- SCP client/server support
 - direct TCP forwarding
+- local, remote, and dynamic TCP forwarding
+- SOCKS5 dynamic forwarding to loopback targets on the fixture host
+- ProxyJump from the fixture back to its own loopback sshd
+- `nc` for remote-forward command verification
+- `sleep` for cancellation tests
+- `dd` for SFTP transfer cancellation tests
+
+`SSHKIT_LIVE_HOST`, `SSHKIT_LEGACY_RSA_HOST`, and `SSHKIT_DROPBEAR_HOST` must point at external fixture hosts. Live tests reject loopback and localhost values so they exercise real SSH servers outside the developer machine's local sshd.
+
+The live suite also mutates the supplied known-hosts entry to verify host-key mismatch failures, and it starts local loopback proxy/listener processes only as route fixtures while keeping the SSH server target on the external fixture host.
+
+Run the full live gate with:
+
+```sh
+Script/test-live-fixture.sh
+```
+
+The live gate requires every live test to run. If SwiftPM reports a skipped live test, the script exits with status `65`.
 
 The smoke command used by the current live tests is:
 
@@ -35,11 +87,11 @@ The smoke command used by the current live tests is:
 whoami && cat /etc/alpine-release
 ```
 
-The expected current Alpine fixture output is:
+The expected Alpine fixture output starts with the fixture user and one Alpine release line:
 
 ```text
 root
-3.21.7
+<major>.<minor>[.<patch>]
 ```
 
 ## Credential Handling

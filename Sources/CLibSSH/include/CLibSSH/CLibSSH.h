@@ -1,5 +1,4 @@
 #pragma once
 
-#ifndef SSHKIT_CLIBSSH_PLACEHOLDER
-#define SSHKIT_CLIBSSH_PLACEHOLDER 1
-#endif
+#include <libssh/libssh.h>
+#include <libssh/sftp.h>

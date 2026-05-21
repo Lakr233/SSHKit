@@ -3,9 +3,23 @@ import SSHKitObjC
 
 public final class SSHConnection: @unchecked Sendable {
     private let session: SSHKitConnection
+    private let configuration: SSHClientConfiguration
 
-    init(session: SSHKitConnection) {
+    init(session: SSHKitConnection, configuration: SSHClientConfiguration) {
         self.session = session
+        self.configuration = configuration
+    }
+
+    public var hostKeyFingerprint: SSHHostKeyFingerprint? {
+        session.hostKeySHA256Fingerprint.map(SSHHostKeyFingerprint.init)
+    }
+
+    public func diagnosticReport(
+        phase: String = "connected",
+        metadata: [String: String] = [:],
+        recentEvents: [SSHLogEvent] = [],
+    ) -> SSHDiagnosticReport {
+        configuration.diagnosticReport(phase: phase, metadata: metadata, recentEvents: recentEvents)
     }
 
     public func execute(
@@ -32,6 +46,7 @@ public final class SSHConnection: @unchecked Sendable {
                 standardOutput: result.standardOutput,
                 standardError: result.standardError,
                 exitStatus: result.exitStatus,
+                exitSignal: result.exitSignal,
             )
             callbackQueue.async {
                 completion(.success(commandResult))
@@ -97,6 +112,312 @@ public final class SSHConnection: @unchecked Sendable {
             callbackQueue.async {
                 completion(.success(SSHShell(shell: shell)))
             }
+        }
+    }
+
+    public func openCommand(
+        _ command: String,
+        callbackQueue: DispatchQueue = .main,
+        eventHandler: @escaping @Sendable (SSHCommandEvent) -> Void,
+        completion: @escaping (Result<SSHCommand, SSHKitError>) -> Void,
+    ) {
+        precondition(command.isEmpty == false, "Command must not be empty.")
+
+        let eventSink = SSHCommandEventSink()
+        session.openCommand(command, eventHandler: { event in
+            let commandEvent = SSHCommand.makeEvent(event)
+            eventSink.yield(commandEvent)
+            callbackQueue.async {
+                eventHandler(commandEvent)
+            }
+        }) { command, error in
+            if let error = error as NSError? {
+                eventSink.finish()
+                callbackQueue.async {
+                    completion(.failure(SSHKitError(error)))
+                }
+                return
+            }
+
+            guard let command else {
+                eventSink.finish()
+                callbackQueue.async {
+                    completion(.failure(SSHKitError(code: SSHKitErrorCode.unavailable.rawValue, message: "SSH command opened without a command object.")))
+                }
+                return
+            }
+
+            callbackQueue.async {
+                completion(.success(SSHCommand(command: command, eventSink: eventSink)))
+            }
+        }
+    }
+
+    public func openCommand(_ command: String) async throws -> SSHCommand {
+        let eventSink = SSHCommandEventSink()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                session.openCommand(command, eventHandler: { event in
+                    eventSink.yield(SSHCommand.makeEvent(event))
+                }) { command, error in
+                    if let error = error as NSError? {
+                        eventSink.finish()
+                        continuation.resume(throwing: SSHKitError(error))
+                        return
+                    }
+
+                    guard let command else {
+                        eventSink.finish()
+                        continuation.resume(throwing: SSHKitError(code: SSHKitErrorCode.unavailable.rawValue, message: "SSH command opened without a command object."))
+                        return
+                    }
+
+                    continuation.resume(returning: SSHCommand(command: command, eventSink: eventSink))
+                }
+            }
+        } onCancel: {
+            close(callbackQueue: .global()) { _ in
+            }
+        }
+    }
+
+    public func openSFTP(
+        callbackQueue: DispatchQueue = .main,
+        completion: @escaping (Result<SFTPClient, SSHKitError>) -> Void,
+    ) {
+        session.openSFTP { client, error in
+            if let error = error as NSError? {
+                callbackQueue.async {
+                    completion(.failure(SSHKitError(error)))
+                }
+                return
+            }
+
+            guard let client else {
+                callbackQueue.async {
+                    completion(.failure(SSHKitError(code: SSHKitErrorCode.unavailable.rawValue, message: "SFTP opened without a client object.")))
+                }
+                return
+            }
+
+            callbackQueue.async {
+                let session = self.session
+                completion(.success(SFTPClient(client: client) {
+                    session.disconnect { _ in }
+                }))
+            }
+        }
+    }
+
+    public func openSFTP() async throws -> SFTPClient {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                openSFTP(callbackQueue: .global()) { result in
+                    continuation.resume(with: result)
+                }
+            }
+        } onCancel: {
+            close(callbackQueue: .global()) { _ in
+            }
+        }
+    }
+
+    public func openDirectTCPChannel(
+        host: String,
+        port: UInt16,
+        callbackQueue: DispatchQueue = .main,
+        completion: @escaping (Result<SSHTunnelChannel, SSHKitError>) -> Void,
+    ) {
+        precondition(host.isEmpty == false, "Direct TCP channel host must not be empty.")
+        precondition(port > 0, "Direct TCP channel port must be greater than zero.")
+
+        session.openDirectTCPChannel(toHost: host, port: port) { channel, error in
+            if let error = error as NSError? {
+                callbackQueue.async {
+                    completion(.failure(SSHKitError(error)))
+                }
+                return
+            }
+
+            guard let channel else {
+                callbackQueue.async {
+                    completion(.failure(SSHKitError(code: SSHKitErrorCode.unavailable.rawValue, message: "Direct TCP channel opened without a channel object.")))
+                }
+                return
+            }
+
+            callbackQueue.async {
+                completion(.success(SSHTunnelChannel(channel: channel) { [weak self] in
+                    self?.close(callbackQueue: .global()) { _ in }
+                }))
+            }
+        }
+    }
+
+    public func openDirectTCPChannel(host: String, port: UInt16) async throws -> SSHTunnelChannel {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                openDirectTCPChannel(host: host, port: port, callbackQueue: .global()) { result in
+                    continuation.resume(with: result)
+                }
+            }
+        } onCancel: {
+            close(callbackQueue: .global()) { _ in
+            }
+        }
+    }
+
+    public func startLocalForward(
+        localHost: String = "127.0.0.1",
+        localPort: UInt16 = 0,
+        remoteHost: String,
+        remotePort: UInt16,
+        callbackQueue: DispatchQueue = .main,
+        completion: @escaping (Result<SSHPortForward, SSHKitError>) -> Void,
+    ) {
+        precondition(localHost.isEmpty == false, "Local forward bind host must not be empty.")
+        precondition(remoteHost.isEmpty == false, "Local forward target host must not be empty.")
+        precondition(remotePort > 0, "Local forward target port must be greater than zero.")
+
+        session.startLocalForward(
+            fromHost: localHost,
+            port: localPort,
+            toHost: remoteHost,
+            targetPort: remotePort,
+        ) { forward, error in
+            if let error = error as NSError? {
+                callbackQueue.async {
+                    completion(.failure(SSHKitError(error)))
+                }
+                return
+            }
+
+            guard let forward else {
+                callbackQueue.async {
+                    completion(.failure(SSHKitError(code: SSHKitErrorCode.unavailable.rawValue, message: "Local forward started without a forward object.")))
+                }
+                return
+            }
+
+            callbackQueue.async {
+                completion(.success(SSHPortForward(forward: forward)))
+            }
+        }
+    }
+
+    public func startLocalForward(
+        localHost: String = "127.0.0.1",
+        localPort: UInt16 = 0,
+        remoteHost: String,
+        remotePort: UInt16,
+    ) async throws -> SSHPortForward {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                startLocalForward(localHost: localHost, localPort: localPort, remoteHost: remoteHost, remotePort: remotePort, callbackQueue: .global()) { result in
+                    continuation.resume(with: result)
+                }
+            }
+        } onCancel: {
+            close(callbackQueue: .global()) { _ in
+            }
+        }
+    }
+
+    public func startRemoteForward(
+        remoteHost: String = "127.0.0.1",
+        remotePort: UInt16 = 0,
+        localHost: String,
+        localPort: UInt16,
+        callbackQueue: DispatchQueue = .main,
+        completion: @escaping (Result<SSHPortForward, SSHKitError>) -> Void,
+    ) {
+        precondition(remoteHost.isEmpty == false, "Remote forward bind host must not be empty.")
+        precondition(localHost.isEmpty == false, "Remote forward target host must not be empty.")
+        precondition(localPort > 0, "Remote forward target port must be greater than zero.")
+
+        session.startRemoteForward(
+            fromHost: remoteHost,
+            port: remotePort,
+            toHost: localHost,
+            targetPort: localPort,
+        ) { forward, error in
+            Self.completePortForward(forward, error: error, callbackQueue: callbackQueue, completion: completion)
+        }
+    }
+
+    public func startDynamicForward(
+        localHost: String = "127.0.0.1",
+        localPort: UInt16 = 0,
+        username: String? = nil,
+        password: String? = nil,
+        callbackQueue: DispatchQueue = .main,
+        completion: @escaping (Result<SSHPortForward, SSHKitError>) -> Void,
+    ) {
+        precondition(localHost.isEmpty == false, "Dynamic forward bind host must not be empty.")
+
+        session.startDynamicForward(fromHost: localHost, port: localPort, username: username, password: password) { forward, error in
+            Self.completePortForward(forward, error: error, callbackQueue: callbackQueue, completion: completion)
+        }
+    }
+
+    public func startRemoteForward(
+        remoteHost: String = "127.0.0.1",
+        remotePort: UInt16 = 0,
+        localHost: String,
+        localPort: UInt16,
+    ) async throws -> SSHPortForward {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                startRemoteForward(remoteHost: remoteHost, remotePort: remotePort, localHost: localHost, localPort: localPort, callbackQueue: .global()) { result in
+                    continuation.resume(with: result)
+                }
+            }
+        } onCancel: {
+            close(callbackQueue: .global()) { _ in
+            }
+        }
+    }
+
+    public func startDynamicForward(
+        localHost: String = "127.0.0.1",
+        localPort: UInt16 = 0,
+        username: String? = nil,
+        password: String? = nil,
+    ) async throws -> SSHPortForward {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                startDynamicForward(localHost: localHost, localPort: localPort, username: username, password: password, callbackQueue: .global()) { result in
+                    continuation.resume(with: result)
+                }
+            }
+        } onCancel: {
+            close(callbackQueue: .global()) { _ in
+            }
+        }
+    }
+
+    private static func completePortForward(
+        _ forward: SSHKitObjC.SSHKitPortForward?,
+        error: Error?,
+        callbackQueue: DispatchQueue,
+        completion: @escaping (Result<SSHPortForward, SSHKitError>) -> Void,
+    ) {
+        if let error = error as NSError? {
+            callbackQueue.async {
+                completion(.failure(SSHKitError(error)))
+            }
+            return
+        }
+
+        guard let forward else {
+            callbackQueue.async {
+                completion(.failure(SSHKitError(code: SSHKitErrorCode.unavailable.rawValue, message: "SSH port forward started without a forward object.")))
+            }
+            return
+        }
+
+        callbackQueue.async {
+            completion(.success(SSHPortForward(forward: forward)))
         }
     }
 

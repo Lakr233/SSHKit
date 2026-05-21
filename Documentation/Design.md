@@ -61,8 +61,8 @@ Swift public names:
 | Auth input | `SSHAuthentication` |
 | Host trust policy | `SSHHostKeyPolicy` |
 | Authenticated transport | `SSHConnection` |
-| Collected command output | `SSHCommandResult` |
-| Streamed command | `SSHCommand` |
+| Collected command output | `SSHCommandResult` with stdout, stderr, exit status, and exit signal |
+| Streamed command | `SSHCommand` with stdout, stderr, close status, and close signal events |
 | PTY shell | `SSHShell` |
 | File subsystem | `SFTPClient` |
 | File handle | `SFTPFileHandle` |
@@ -75,6 +75,9 @@ Objective-C public names use the `SSHKit` prefix:
 - `SSHKitAuthentication`
 - `SSHKitHostKeyPolicy`
 - `SSHKitHostTrustStore`
+- `SSHKitKeychainTrustStore`
+- `SSHKitMemoryTrustStore`
+- `SSHKitLogRecorder`
 - `SSHKitConnection`
 - `SSHKitCommandResult`
 - `SSHKitShell`
@@ -94,15 +97,17 @@ Objective-C internal names use the `SSHCore` prefix:
 Swift async APIs are the primary application surface:
 
 ```swift
+let trustStore = SSHKeychainHostTrustStore(service: "wiki.qaq.sshkit")
 let configuration = SSHClient.Configuration(
     host: "example.com",
     username: "deploy",
     authentication: .password("secret"),
-    hostKeyPolicy: .trustStore(.keychain(service: "wiki.qaq.sshkit"))
+    hostKeyPolicy: .trustStore(trustStore)
 )
 
 let connection = try await SSHClient.connect(configuration)
 let result = try await connection.execute("uname -a")
+let hostKeyFingerprint = connection.hostKeyFingerprint
 try await connection.close()
 ```
 
@@ -146,6 +151,8 @@ configuration.hostKeyPolicy =
     }];
 }];
 ```
+
+The Objective-C façade types write through to the same configuration fields used by the core connection layer. `SSHKitHostKeyPolicy` resolves memory and Keychain trust stores when a connection is created so host and port changes are reflected in the final trust lookup.
 
 ## Ownership Model
 
@@ -288,20 +295,18 @@ Host trust is explicit and injectable.
 Swift:
 
 ```swift
-public enum SSHHostKeyPolicy {
+public enum SSHHostKeyPolicy: Sendable {
     case knownHostsFile(String)
-    case trustStore(HostTrustStore)
-    case pinnedFingerprint(String)
+    case trustStore(any SSHHostTrustStore)
+    case pinnedFingerprint(SSHHostKeyFingerprint)
     case insecureAcceptAnyHostKey
 }
 ```
 
-Objective-C:
+Trust stores persist SHA-256 host-key fingerprints by host and port:
 
-- `SSHKitHostKeyPolicy`
-- `SSHKitHostTrustStore`
-- `SSHKitKeychainTrustStore`
-- `SSHKitMemoryTrustStore`
+- `SSHMemoryHostTrustStore`
+- `SSHKeychainHostTrustStore`
 
 Default Keychain service:
 
@@ -309,9 +314,9 @@ Default Keychain service:
 wiki.qaq.sshkit
 ```
 
-The default store uses Keychain-backed persistence. Applications may inject their own store implementation. KeychainAccess is an acceptable Swift dependency for the default Keychain-backed store. Direct Security.framework usage remains available inside Objective-C where lower-level control is useful.
+The default store uses Keychain-backed persistence. Applications may inject any `SSHHostTrustStore` implementation. If a trust store cannot load a trusted fingerprint or has no entry for the host and port, connection setup returns a host-key verification error.
 
-`insecureAcceptAnyHostKey` is an explicit policy. It should emit a warning log event and should be suitable for local tools, tests, and controlled disposable environments.
+`pinnedFingerprint` compares the server's SHA-256 host-key fingerprint directly. `insecureAcceptAnyHostKey` is an explicit policy that emits a warning log event and exposes the server fingerprint on the returned connection.
 
 ## Diagnostics
 
@@ -324,8 +329,17 @@ Public diagnostics:
 - structured log events
 - bounded in-memory log recorder
 - redacted support report
+- port latency reports with route, connect timing, SSH service timing, and total timing
 
 Unexpected failures must surface. SSHKit avoids silent fallbacks, empty success values, and default data that hides broken state.
+
+## Algorithm Profiles
+
+`SSHAlgorithmProfile.modern` keeps libssh's modern defaults and sets the client RSA minimum to 3072 bits.
+`SSHAlgorithmProfile.legacyRSA` explicitly opts into `ssh-rsa` host-key and public-key algorithms and lowers the RSA minimum to 1024 bits for legacy endpoints.
+Custom profiles pass comma-separated libssh/OpenSSH algorithm lists directly to libssh. Lists may use libssh's OpenSSH-compatible `+`, `-`, and `^` modifiers.
+
+libssh rejects unsupported algorithm names during session configuration and algorithm inspection. SSHKit exposes those failures as typed errors. Public-key accepted algorithms inherit libssh's host-key defaults when the profile leaves `publicKeyAcceptedAlgorithms` unset. libssh exposes RSA minimum size as a set-only option, so the snapshot reports the accepted configured value when a profile supplies one and leaves it absent for libssh defaults. SSHKit's algorithm support is bounded by the vendored libssh/OpenSSL build; endpoints that require algorithms outside that build need server-side configuration changes or a custom libssh build.
 
 ## Compatibility Target
 
@@ -356,5 +370,7 @@ SSHKit aims to cover the same application-level capability surface as modern Swi
 - legacy RSA opt-in
 - key generation helpers
 - latency measurement tools
+
+Collected command results expose `exitStatus` and nullable `exitSignal`. Streamed command close events expose the same exit metadata so callers can distinguish a normal non-zero status from remote signal termination.
 
 SSHKit exposes these capabilities through its own names and the blocking worker model described above.

@@ -63,13 +63,18 @@ import SwiftUI
         }
 
         fileprivate static func takeFocusIfAppropriate(_ view: TerminalView) {
-            guard shouldAutoTakeFocus else { return }
-            // No synchronous window/responder gate here: this is also called
-            // from makeUIView where the view has no window yet. The async
-            // closure re-checks both conditions before acting, so a too-early
-            // call is safely deferred and a redundant call is a cheap no-op.
+            // All gates are re-evaluated inside the closure so that a state
+            // change between scheduling and the runloop tick (window detach,
+            // hardware keyboard unpair, another view becoming first responder)
+            // is honored. In particular, `shouldAutoTakeFocus` is re-checked
+            // because a HW-keyboard disconnect during the dispatch window
+            // would otherwise pop the software keyboard.
             DispatchQueue.main.async { [weak view] in
-                guard let view, view.window != nil, !view.isFirstResponder else { return }
+                guard let view,
+                      view.window != nil,
+                      !view.isFirstResponder,
+                      shouldAutoTakeFocus
+                else { return }
                 view.becomeFirstResponder()
             }
         }

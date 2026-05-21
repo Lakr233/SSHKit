@@ -88,7 +88,7 @@ struct CommandView: View {
                 .padding(.vertical, 10)
                 .background(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(.quaternary.opacity(0.5)),
+                        .fill(.quaternary.opacity(0.5))
                 )
                 .accessibilityIdentifier("SSHKitExample.Command.Field")
         }

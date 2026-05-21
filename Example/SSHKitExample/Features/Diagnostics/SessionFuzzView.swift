@@ -98,7 +98,7 @@ struct SessionFuzzView: View {
                                 }
                                 let head = String(
                                     data: result.standardOutput.prefix(64),
-                                    encoding: .utf8,
+                                    encoding: .utf8
                                 )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                                 let line = "\u{1B}[36m[w\(worker) i\(currentIteration)]\u{1B}[0m \(head)"
                                 await MainActor.run {

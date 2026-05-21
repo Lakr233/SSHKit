@@ -20,7 +20,7 @@ struct SFTPBrowserView: View {
                 ContentUnavailableView(
                     "Not connected",
                     systemImage: "network.slash",
-                    description: Text("Connect first to browse SFTP."),
+                    description: Text("Connect first to browse SFTP.")
                 )
             } else if let model {
                 if model.isConnected {
@@ -102,7 +102,7 @@ private struct BrowserBody: View {
             "Error",
             isPresented: errorBinding,
             actions: { Button("OK") { model.error = nil } },
-            message: { Text(model.error ?? "") },
+            message: { Text(model.error ?? "") }
         )
         .sheet(isPresented: $showNewFolder) { newFolderSheet }
         .sheet(item: $renameTarget) { target in renameSheet(target: target) }
@@ -118,11 +118,11 @@ private struct BrowserBody: View {
             .fileExporter(
                 isPresented: Binding(
                     get: { exportSource != nil },
-                    set: { newValue in if !newValue { exportSource = nil } },
+                    set: { newValue in if !newValue { exportSource = nil } }
                 ),
                 document: exportSource.map { ExportDocument(url: $0) },
                 contentType: .data,
-                defaultFilename: exportSource?.lastPathComponent,
+                defaultFilename: exportSource?.lastPathComponent
             ) { _ in
                 exportSource = nil
             }
@@ -147,7 +147,7 @@ private struct BrowserBody: View {
             Table(
                 of: SFTPRemoteFile.self,
                 selection: $model.selection,
-                sortOrder: $model.sortOrder,
+                sortOrder: $model.sortOrder
             ) {
                 TableColumn("", value: \.name) { file in
                     Image(systemName: file.icon)
@@ -574,7 +574,7 @@ private struct BrowserBody: View {
     private var errorBinding: Binding<Bool> {
         Binding(
             get: { model.error != nil },
-            set: { newValue in if !newValue { model.error = nil } },
+            set: { newValue in if !newValue { model.error = nil } }
         )
     }
 }

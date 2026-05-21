@@ -53,7 +53,7 @@ struct HostTrustEnrollmentView: View {
             .alert(
                 "Connection error",
                 isPresented: bindingForError,
-                presenting: store.lastError,
+                presenting: store.lastError
             ) { _ in
                 Button("OK", role: .cancel) { store.lastError = nil }
             } message: { error in
@@ -64,7 +64,7 @@ struct HostTrustEnrollmentView: View {
     private var bindingForError: Binding<Bool> {
         Binding(
             get: { store.lastError != nil },
-            set: { newValue in if !newValue { store.lastError = nil } },
+            set: { newValue in if !newValue { store.lastError = nil } }
         )
     }
 

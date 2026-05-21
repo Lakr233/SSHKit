@@ -10,7 +10,7 @@ final class DiagnosticsTerminal {
     init() {
         inMemory = InMemoryTerminalSession(
             write: { _ in },
-            resize: { _ in },
+            resize: { _ in }
         )
         viewState = TerminalViewState(terminalConfiguration: TerminalConfiguration())
         viewState.configuration = TerminalSurfaceOptions(backend: .inMemory(inMemory))

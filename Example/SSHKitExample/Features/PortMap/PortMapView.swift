@@ -142,19 +142,19 @@ struct PortMapView: View {
                                 localHost: lHost,
                                 localPort: lPort,
                                 remoteHost: rHost,
-                                remotePort: rPort,
+                                remotePort: rPort
                             )
                         case .remote:
                             try await connection.startRemoteForward(
                                 remoteHost: lHost,
                                 remotePort: lPort,
                                 localHost: rHost,
-                                localPort: rPort,
+                                localPort: rPort
                             )
                         case .dynamic:
                             try await connection.startDynamicForward(
                                 localHost: lHost,
-                                localPort: lPort,
+                                localPort: lPort
                             )
                         }
                     }
@@ -163,7 +163,7 @@ struct PortMapView: View {
                             kind: kind,
                             forward: forward,
                             boundHost: forward.boundHost,
-                            boundPort: forward.boundPort,
+                            boundPort: forward.boundPort
                         )
                         status = "Forward opened. Tip: keep this screen alive while the tunnel is in use."
                     }

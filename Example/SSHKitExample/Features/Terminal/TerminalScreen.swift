@@ -24,7 +24,7 @@ struct TerminalScreen: View {
                 ContentUnavailableView(
                     "Not connected",
                     systemImage: "network.slash",
-                    description: Text("Connect first to open a shell."),
+                    description: Text("Connect first to open a shell.")
                 )
             } else {
                 ProgressView("Opening shell…")

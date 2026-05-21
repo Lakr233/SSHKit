@@ -90,7 +90,7 @@ extension SFTPRemoteFile {
             size: size,
             permissions: permissions,
             modified: modified,
-            symlinkTargetsDirectory: value,
+            symlinkTargetsDirectory: value
         )
     }
 

@@ -34,7 +34,7 @@ struct UploadFileImporter: ViewModifier {
         content.fileImporter(
             isPresented: $isPresented,
             allowedContentTypes: [.data],
-            allowsMultipleSelection: false,
+            allowsMultipleSelection: false
         ) { result in
             switch result {
             case let .success(urls):
@@ -50,7 +50,7 @@ struct UploadFileImporter: ViewModifier {
 extension View {
     func uploadFileImporter(
         isPresented: Binding<Bool>,
-        onResult: @escaping (Result<URL, Error>) -> Void,
+        onResult: @escaping (Result<URL, Error>) -> Void
     ) -> some View {
         modifier(UploadFileImporter(isPresented: isPresented, onResult: onResult))
     }

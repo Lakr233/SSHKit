@@ -110,7 +110,7 @@ struct RootView: View {
         .alert(
             "Connection error",
             isPresented: bindingForError,
-            presenting: store.lastError,
+            presenting: store.lastError
         ) { _ in
             Button("OK", role: .cancel) { store.lastError = nil }
         } message: { error in
@@ -146,7 +146,7 @@ struct RootView: View {
                 ContentUnavailableView(
                     "Not connected",
                     systemImage: "network.slash",
-                    description: Text("Open the Setup tab in the sidebar to start an SSH session."),
+                    description: Text("Open the Setup tab in the sidebar to start an SSH session.")
                 )
             } else {
                 content(for: item)
@@ -156,7 +156,7 @@ struct RootView: View {
             ContentUnavailableView(
                 "Pick a feature",
                 systemImage: "sidebar.left",
-                description: Text("Choose a screen from the sidebar."),
+                description: Text("Choose a screen from the sidebar.")
             )
         }
     }
@@ -179,14 +179,14 @@ struct RootView: View {
     private var bindingForPendingEnrollment: Binding<PendingEnrollment?> {
         Binding(
             get: { store.pendingEnrollment },
-            set: { store.pendingEnrollment = $0 },
+            set: { store.pendingEnrollment = $0 }
         )
     }
 
     private var bindingForError: Binding<Bool> {
         Binding(
             get: { store.lastError != nil && store.pendingEnrollment == nil },
-            set: { newValue in if !newValue { store.lastError = nil } },
+            set: { newValue in if !newValue { store.lastError = nil } }
         )
     }
 }

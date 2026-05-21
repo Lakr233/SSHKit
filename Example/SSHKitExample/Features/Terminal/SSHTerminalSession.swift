@@ -20,6 +20,7 @@ final class SSHTerminalSession {
     private var shell: SSHShell?
     private var startedAt: DispatchTime?
     private var startToken: UUID?
+    private var outputLineDiscipline = TerminalOutputLineDiscipline()
 
     init(configuration: SSHClientConfiguration, logRecorder: SSHLogRecorder) {
         self.configuration = configuration
@@ -158,10 +159,21 @@ final class SSHTerminalSession {
     }
 
     fileprivate func handleTerminalWroteOutput(_ data: Data) {
-        guard let shell else { return }
+        AppLog.debug(.terminal, "Terminal emitted input", metadata: TerminalByteShape.metadata(for: data) + [
+            "state": String(describing: state),
+        ])
+        guard let shell else {
+            AppLog.warning(.terminal, "Terminal input dropped without active shell", metadata: TerminalByteShape.metadata(for: data) + [
+                "state": String(describing: state),
+            ])
+            return
+        }
         Task { [weak self] in
             do {
                 try await shell.write(data)
+                await MainActor.run {
+                    AppLog.debug(.terminal, "Terminal input written to SSH shell", metadata: TerminalByteShape.metadata(for: data))
+                }
             } catch let e as SSHKitError {
                 await MainActor.run { self?.recordError(e, phase: "write") }
             } catch {
@@ -197,12 +209,17 @@ final class SSHTerminalSession {
     private func handleShellEvent(_ event: SSHShellEvent) {
         switch event {
         case let .standardOutput(data), let .standardError(data):
-            inMemory.receive(data)
+            let translated = outputLineDiscipline.translate(data)
+            var metadata = TerminalByteShape.metadata(for: data)
+            metadata["insertedCarriageReturns"] = String(translated.insertedCarriageReturns)
+            metadata["deliveredByteCount"] = String(translated.data.count)
+            AppLog.debug(.terminal, "SSH shell output received", metadata: metadata)
+            inMemory.receive(translated.data)
         case let .closed(status):
             let runtimeMs: UInt64 = startedAt.map {
                 (DispatchTime.now().uptimeNanoseconds &- $0.uptimeNanoseconds) / 1_000_000
             } ?? 0
-            inMemory.finish(exitCode: status, runtimeMilliseconds: runtimeMs)
+            finishTerminal(exitStatus: status, runtimeMilliseconds: runtimeMs)
             shell = nil
             let conn = connection
             connection = nil
@@ -246,6 +263,16 @@ final class SSHTerminalSession {
                 )
             }
         }
+    }
+
+    private func finishTerminal(exitStatus: Int32, runtimeMilliseconds: UInt64) {
+        let exitCode = exitStatus >= 0 ? UInt32(exitStatus) : 1
+        inMemory.finish(exitCode: exitCode, runtimeMilliseconds: runtimeMilliseconds)
+        AppLog.info(.terminal, "Terminal process finished", metadata: [
+            "exitStatus": String(exitStatus),
+            "reportedExitCode": String(exitCode),
+            "runtimeMs": String(runtimeMilliseconds),
+        ])
     }
 
     private func recordError(_ error: SSHKitError, phase: String) {
@@ -296,15 +323,73 @@ private final class InMemoryResizeBridge: @unchecked Sendable {
     }
 }
 
-private extension InMemoryTerminalSession {
-    /// Convenience that matches the plan's exit-status finish semantics, even
-    /// if libghostty-spm later renames the underlying call. If the binary API
-    /// changes, this is the single point of repair.
-    func finish(exitCode: Int32, runtimeMilliseconds: UInt64) {
-        // The library exposes the surface lifecycle internally. We treat the
-        // exit as a no-op observation point for now; the SwiftUI view detects
-        // the shell-closed state via SSHTerminalSession.state.
-        _ = exitCode
-        _ = runtimeMilliseconds
+struct TerminalOutputLineDiscipline {
+    private var previousByteWasCarriageReturn = false
+
+    mutating func translate(_ data: Data) -> (data: Data, insertedCarriageReturns: Int) {
+        guard !data.isEmpty else {
+            return (data, 0)
+        }
+
+        var output = Data()
+        output.reserveCapacity(data.count)
+        var insertedCarriageReturns = 0
+
+        for byte in data {
+            if byte == 0x0A {
+                if !previousByteWasCarriageReturn {
+                    output.append(0x0D)
+                    insertedCarriageReturns += 1
+                }
+                output.append(byte)
+                previousByteWasCarriageReturn = false
+            } else {
+                output.append(byte)
+                previousByteWasCarriageReturn = byte == 0x0D
+            }
+        }
+
+        if insertedCarriageReturns == 0 {
+            return (data, 0)
+        }
+        return (output, insertedCarriageReturns)
+    }
+}
+
+enum TerminalByteShape {
+    static func metadata(for data: Data) -> [String: String] {
+        var carriageReturns = 0
+        var lineFeeds = 0
+        var carriageReturnLineFeeds = 0
+        var bareLineFeeds = 0
+        var escapeBytes = 0
+        var previousByte: UInt8?
+
+        for byte in data {
+            if byte == 0x0D {
+                carriageReturns += 1
+            }
+            if byte == 0x0A {
+                lineFeeds += 1
+                if previousByte == 0x0D {
+                    carriageReturnLineFeeds += 1
+                } else {
+                    bareLineFeeds += 1
+                }
+            }
+            if byte == 0x1B {
+                escapeBytes += 1
+            }
+            previousByte = byte
+        }
+
+        return [
+            "byteCount": String(data.count),
+            "carriageReturns": String(carriageReturns),
+            "lineFeeds": String(lineFeeds),
+            "carriageReturnLineFeeds": String(carriageReturnLineFeeds),
+            "bareLineFeeds": String(bareLineFeeds),
+            "escapeBytes": String(escapeBytes),
+        ]
     }
 }

@@ -3,7 +3,6 @@ import SwiftUI
 
 struct SetupConnectionView: View {
     @Environment(ConnectionStore.self) private var store
-    @Environment(\.dismiss) private var dismiss
 
     @AppStorage("SSHKitExample.Setup.host") private var host: String = "127.0.0.1"
     @AppStorage("SSHKitExample.Setup.port") private var portString: String = "7422"
@@ -50,14 +49,19 @@ struct SetupConnectionView: View {
             .frame(minWidth: 420, minHeight: 360)
         #endif
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                if store.configuration != nil {
+                    ToolbarItem(placement: .destructiveAction) {
+                        Button("Disconnect", role: .destructive) {
+                            store.disconnect()
+                        }
+                        .accessibilityIdentifier("SSHKitExample.Setup.Disconnect")
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
                         Task { await connect() }
                     } label: {
-                        Text(isConnecting ? "Connecting…" : "Discover & Connect")
+                        Text(connectButtonTitle)
                     }
                     .disabled(isConnecting || host.isEmpty || username.isEmpty || password.isEmpty || port == nil)
                     .accessibilityIdentifier("SSHKitExample.Setup.Connect")
@@ -66,7 +70,7 @@ struct SetupConnectionView: View {
             .alert(
                 "Connection error",
                 isPresented: bindingForError,
-                presenting: store.lastError,
+                presenting: store.lastError
             ) { _ in
                 Button("OK", role: .cancel) { store.lastError = nil }
             } message: { error in
@@ -78,10 +82,20 @@ struct SetupConnectionView: View {
         UInt16(portString)
     }
 
+    private var connectButtonTitle: String {
+        if isConnecting {
+            "Connecting…"
+        } else if store.configuration != nil {
+            "Reconnect"
+        } else {
+            "Discover & Connect"
+        }
+    }
+
     private var bindingForError: Binding<Bool> {
         Binding(
             get: { store.lastError != nil },
-            set: { newValue in if !newValue { store.lastError = nil } },
+            set: { newValue in if !newValue { store.lastError = nil } }
         )
     }
 
@@ -103,7 +117,7 @@ struct SetupConnectionView: View {
             host: host,
             port: port,
             username: username,
-            authentication: .password(password),
+            authentication: .password(password)
         )
     }
 }

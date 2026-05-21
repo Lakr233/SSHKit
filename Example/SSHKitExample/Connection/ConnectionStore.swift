@@ -11,27 +11,37 @@ struct PendingEnrollment: Identifiable {
     let fingerprint: SSHHostKeyFingerprint
 }
 
+enum ActiveSheet: Identifiable {
+    case setup
+    case enrollment(PendingEnrollment)
+
+    var id: String {
+        switch self {
+        case .setup: "setup"
+        case let .enrollment(pending): "enrollment-\(pending.id)"
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class ConnectionStore {
     var configuration: SSHClientConfiguration?
     var pool: ConnectionPool?
     var lastError: SSHKitError?
-    var pendingEnrollment: PendingEnrollment?
-    var isShowingSetup: Bool = false
+    var activeSheet: ActiveSheet?
 
     let trustStore = HostTrustStoreFactory.makeDefault()
     let logRecorder = SSHLogRecorder()
 
     init() {
         if configuration == nil {
-            // Auto-present the setup sheet on first launch.
-            isShowingSetup = true
+            activeSheet = .setup
         }
     }
 
     func startSetupFlow() {
-        isShowingSetup = true
+        activeSheet = .setup
     }
 
     /// Discover the host key first (no auth required), then either auto-connect
@@ -72,12 +82,14 @@ final class ConnectionStore {
                 }
                 return
             }
-            pendingEnrollment = PendingEnrollment(
-                host: host,
-                port: port,
-                username: username,
-                authentication: authentication,
-                fingerprint: discovered.fingerprint,
+            activeSheet = .enrollment(
+                PendingEnrollment(
+                    host: host,
+                    port: port,
+                    username: username,
+                    authentication: authentication,
+                    fingerprint: discovered.fingerprint,
+                ),
             )
         } catch let error as SSHKitError {
             lastError = error
@@ -103,7 +115,7 @@ final class ConnectionStore {
             )
             return
         }
-        pendingEnrollment = nil
+        activeSheet = nil
         finalizeConnect(
             host: pending.host,
             port: pending.port,
@@ -113,7 +125,7 @@ final class ConnectionStore {
     }
 
     func denyEnrollment() {
-        pendingEnrollment = nil
+        activeSheet = nil
     }
 
     func disconnect() {
@@ -148,7 +160,7 @@ final class ConnectionStore {
         )
         self.configuration = configuration
         pool = ConnectionPool(configuration: configuration)
-        isShowingSetup = false
+        activeSheet = nil
     }
 }
 

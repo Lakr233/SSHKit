@@ -83,13 +83,15 @@ struct RootView: View {
             detail
         }
         .accessibilityIdentifier("SSHKitExample.Root")
-        .sheet(isPresented: bindingForSetup) {
-            SetupConnectionView()
-                .environment(store)
-        }
-        .sheet(item: bindingForEnrollment) { pending in
-            HostTrustEnrollmentView(pending: pending)
-                .environment(store)
+        .sheet(item: bindingForActiveSheet) { sheet in
+            switch sheet {
+            case .setup:
+                SetupConnectionView()
+                    .environment(store)
+            case let .enrollment(pending):
+                HostTrustEnrollmentView(pending: pending)
+                    .environment(store)
+            }
         }
         .alert(
             "Connection error",
@@ -168,17 +170,10 @@ struct RootView: View {
         }
     }
 
-    private var bindingForSetup: Binding<Bool> {
+    private var bindingForActiveSheet: Binding<ActiveSheet?> {
         Binding(
-            get: { store.isShowingSetup },
-            set: { store.isShowingSetup = $0 },
-        )
-    }
-
-    private var bindingForEnrollment: Binding<PendingEnrollment?> {
-        Binding(
-            get: { store.pendingEnrollment },
-            set: { store.pendingEnrollment = $0 },
+            get: { store.activeSheet },
+            set: { store.activeSheet = $0 },
         )
     }
 

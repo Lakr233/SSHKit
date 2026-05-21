@@ -38,3 +38,5 @@ public struct SSHKitError: Error, Equatable, LocalizedError, Sendable {
         message = error.localizedDescription
     }
 }
+
+public typealias SSHError = SSHKitError

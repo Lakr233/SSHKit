@@ -16,6 +16,12 @@ import Testing
     #expect(configuration.username == "user")
 }
 
+@Test func `SSHError aliases typed SSHKitError`() {
+    let error: SSHError = SSHKitError(code: SSHKitErrorCode.cancelled.rawValue, message: "cancelled")
+
+    #expect(error.code == SSHKitErrorCode.cancelled.rawValue)
+}
+
 @Test func `command event stream finishes after closed event`() async {
     let sink = SSHCommandEventSink()
     sink.yield(.standardOutput(Data("one".utf8)))

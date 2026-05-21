@@ -340,6 +340,46 @@ static NSString *SSHKitTrustStoreKey(NSString *host, uint16_t port) {
 
 @end
 
+@interface SSHKitLogRecorder ()
+@property (nonatomic) NSLock *lock;
+@property (nonatomic) NSUInteger capacity;
+@property (nonatomic) NSMutableArray<SSHKitLogEvent *> *storedEvents;
+@end
+
+@implementation SSHKitLogRecorder
+
+- (instancetype)initWithCapacity:(NSUInteger)capacity {
+    NSParameterAssert(capacity > 0);
+
+    self = [super init];
+    if (self) {
+        _capacity = capacity;
+        _lock = [[NSLock alloc] init];
+        _storedEvents = [[NSMutableArray alloc] init];
+    }
+    return self;
+}
+
+- (void)recordEvent:(SSHKitLogEvent *)event {
+    NSParameterAssert(event != nil);
+
+    [self.lock lock];
+    [self.storedEvents addObject:event];
+    while (self.storedEvents.count > self.capacity) {
+        [self.storedEvents removeObjectAtIndex:0];
+    }
+    [self.lock unlock];
+}
+
+- (NSArray<SSHKitLogEvent *> *)events {
+    [self.lock lock];
+    NSArray<SSHKitLogEvent *> *events = [self.storedEvents copy];
+    [self.lock unlock];
+    return events;
+}
+
+@end
+
 @implementation SSHKitConfiguration
 
 - (instancetype)initWithHost:(NSString *)host username:(NSString *)username {

@@ -77,6 +77,7 @@ Objective-C public names use the `SSHKit` prefix:
 - `SSHKitHostTrustStore`
 - `SSHKitKeychainTrustStore`
 - `SSHKitMemoryTrustStore`
+- `SSHKitLogRecorder`
 - `SSHKitConnection`
 - `SSHKitCommandResult`
 - `SSHKitShell`

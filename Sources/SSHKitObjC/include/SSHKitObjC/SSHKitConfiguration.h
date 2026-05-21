@@ -119,6 +119,15 @@ typedef NS_ENUM(NSInteger, SSHKitProxyRouteKind) {
 
 typedef void (^SSHKitLogHandler)(SSHKitLogEvent *event);
 
+@interface SSHKitLogRecorder : NSObject
+
+@property (nonatomic, copy, readonly) NSArray<SSHKitLogEvent *> *events;
+
+- (instancetype)initWithCapacity:(NSUInteger)capacity;
+- (void)recordEvent:(SSHKitLogEvent *)event;
+
+@end
+
 @interface SSHKitConfiguration : NSObject <NSCopying>
 
 @property (nonatomic, copy) NSString *host;

@@ -58,6 +58,17 @@
     XCTAssertNotNil([SSHKitClient class]);
 }
 
+- (void)testObjectiveCLogRecorderBoundsEvents {
+    SSHKitLogRecorder *recorder = [[SSHKitLogRecorder alloc] initWithCapacity:2];
+    [recorder recordEvent:[[SSHKitLogEvent alloc] initWithLevel:SSHKitLogLevelInfo phase:@"connect" message:@"one" metadata:@{}]];
+    [recorder recordEvent:[[SSHKitLogEvent alloc] initWithLevel:SSHKitLogLevelInfo phase:@"auth" message:@"two" metadata:@{}]];
+    [recorder recordEvent:[[SSHKitLogEvent alloc] initWithLevel:SSHKitLogLevelWarning phase:@"trust" message:@"three" metadata:@{}]];
+
+    XCTAssertEqual(recorder.events.count, 2);
+    XCTAssertEqualObjects(recorder.events.firstObject.phase, @"auth");
+    XCTAssertEqualObjects(recorder.events.lastObject.phase, @"trust");
+}
+
 - (void)testWorkerAllowsDocumentedCommandLifecycle {
     SSHCoreSessionWorker *worker = [[SSHCoreSessionWorker alloc] init];
     XCTestExpectation *expectation = [self expectationWithDescription:@"state transitions complete"];

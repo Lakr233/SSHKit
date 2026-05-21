@@ -2,6 +2,10 @@ import Foundation
 import SSHKit
 import XCTest
 
+#if canImport(Darwin)
+    import Darwin
+#endif
+
 enum LiveSSHLog {
     private static let lock = NSLock()
 
@@ -29,6 +33,73 @@ enum LiveSSHLog {
     }
 }
 
+private final class LiveSSHFixtureRunLock {
+    #if canImport(Darwin)
+        private var fileDescriptor: Int32 = -1
+
+        func lock(testName: String) throws {
+            let path = FileManager.default.temporaryDirectory
+                .appendingPathComponent("sshkit-live-fixture.lock")
+                .path
+
+            let descriptor = open(path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH)
+            guard descriptor >= 0 else {
+                throw Self.posixError(description: "Open live fixture lock failed")
+            }
+
+            LiveSSHLog.event("fixture lock wait \(testName)")
+            guard flock(descriptor, LOCK_EX) == 0 else {
+                let error = Self.posixError(description: "Acquire live fixture lock failed")
+                Darwin.close(descriptor)
+                throw error
+            }
+
+            fileDescriptor = descriptor
+            LiveSSHLog.event("fixture lock acquired \(testName)")
+        }
+
+        func unlock(testName: String) {
+            guard fileDescriptor >= 0 else {
+                return
+            }
+
+            LiveSSHLog.event("fixture lock release \(testName)")
+            flock(fileDescriptor, LOCK_UN)
+            Darwin.close(fileDescriptor)
+            fileDescriptor = -1
+        }
+
+        private static func posixError(description: String) -> NSError {
+            let code = errno
+            return NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(code),
+                userInfo: [NSLocalizedDescriptionKey: "\(description): \(String(cString: strerror(code)))"],
+            )
+        }
+    #else
+        private static let processLock = NSLock()
+        private var isLocked = false
+
+        func lock(testName: String) throws {
+            LiveSSHLog.event("fixture lock wait \(testName)")
+            Self.processLock.lock()
+            isLocked = true
+            LiveSSHLog.event("fixture lock acquired \(testName)")
+        }
+
+        func unlock(testName: String) {
+            guard isLocked else {
+                return
+            }
+
+            LiveSSHLog.event("fixture lock release \(testName)")
+            isLocked = false
+            Self.processLock.unlock()
+        }
+    #endif
+}
+
 private extension SSHLogLevel {
     var liveDiagnosticName: String {
         switch self {
@@ -45,15 +116,24 @@ private extension SSHLogLevel {
 }
 
 class LiveSSHTestCase: XCTestCase {
+    private var liveFixtureRunLock: LiveSSHFixtureRunLock?
+
     override func setUpWithError() throws {
         try super.setUpWithError()
         LiveSSHLog.event("START \(name)")
+        if ProcessInfo.processInfo.environment["SSHKIT_RUN_LIVE_TESTS"] == "1" {
+            let runLock = LiveSSHFixtureRunLock()
+            try runLock.lock(testName: name)
+            liveFixtureRunLock = runLock
+        }
     }
 
     override func tearDownWithError() throws {
         defer {
             LiveSSHLog.event("END \(name)")
         }
+        liveFixtureRunLock?.unlock(testName: name)
+        liveFixtureRunLock = nil
         try super.tearDownWithError()
     }
 

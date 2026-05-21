@@ -92,6 +92,8 @@ Run the full live gate with:
 Script/test-live-fixture.sh
 ```
 
+The live gate runs `swift test --no-parallel --filter LiveSSHTests` because the external Alpine fixture is a shared mutable resource. `LiveSSHTestCase` also takes a fixture lock when `SSHKIT_RUN_LIVE_TESTS=1`, so direct SwiftPM or Xcode invocations with parallel execution still queue the live XCTest cases against the same external fixture. Individual tests keep their own local temporary directories, local ephemeral ports, remote `/tmp/sshkit-*-<UUID>` paths, and unique Keychain service names.
+
 The live gate requires the Alpine fixture tests to run. Dropbear, legacy RSA, and keyboard-interactive are treated as fixture-capability skips unless those extra services are configured.
 
 The smoke command used by the current live tests is:

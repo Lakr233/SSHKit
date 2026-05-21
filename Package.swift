@@ -119,6 +119,9 @@ let package = Package(
             cSettings: [
                 .headerSearchPath("Private"),
             ],
+            linkerSettings: [
+                .linkedFramework("Security"),
+            ],
         ),
         .target(
             name: "SSHKit",

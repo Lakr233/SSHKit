@@ -1,6 +1,7 @@
 #import <XCTest/XCTest.h>
 
 #import <CLibSSH/CLibSSH.h>
+#import <SSHKitObjC/SSHKitClient.h>
 #import <SSHKitObjC/SSHKitConfiguration.h>
 #import <SSHKitObjC/SSHKitError.h>
 
@@ -27,6 +28,34 @@
     ssh_session session = ssh_new();
     XCTAssertNotEqual(session, NULL);
     ssh_free(session);
+}
+
+- (void)testObjectiveCAuthenticationFacadeAppliesConfigurationFields {
+    SSHKitConfiguration *configuration = [[SSHKitConfiguration alloc] initWithHost:@"example.com" username:@"user"];
+    configuration.authentication = [SSHKitAuthentication privateKeyFileAtPath:@"/tmp/key" passphrase:@"secret"];
+
+    XCTAssertEqual(configuration.authenticationKind, SSHKitAuthenticationKindPrivateKeyFile);
+    XCTAssertEqualObjects(configuration.privateKeyPath, @"/tmp/key");
+    XCTAssertEqualObjects(configuration.privateKeyPassphrase, @"secret");
+}
+
+- (void)testObjectiveCHostTrustFacadeResolvesMemoryStoreForConnection {
+    SSHKitMemoryTrustStore *store = [[SSHKitMemoryTrustStore alloc] initWithFingerprints:nil];
+    NSError *error = nil;
+    XCTAssertTrue([store saveFingerprint:@"abc123" host:@"example.com" port:2222 error:&error]);
+    XCTAssertNil(error);
+
+    SSHKitConfiguration *configuration = [[SSHKitConfiguration alloc] initWithHost:@"example.com" username:@"user"];
+    configuration.port = 2222;
+    configuration.hostKeyPolicy = [SSHKitHostKeyPolicy trustStore:store];
+
+    SSHKitConnection *connection = [[SSHKitConnection alloc] initWithConfiguration:configuration];
+    XCTAssertEqual(connection.configuration.hostKeyPolicyKind, SSHKitHostKeyPolicyKindTrustedFingerprint);
+    XCTAssertEqualObjects(connection.configuration.trustedHostKeySHA256Fingerprint, @"SHA256:abc123");
+}
+
+- (void)testObjectiveCClientFacadeIsAvailable {
+    XCTAssertNotNil([SSHKitClient class]);
 }
 
 - (void)testWorkerAllowsDocumentedCommandLifecycle {

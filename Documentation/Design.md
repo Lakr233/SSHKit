@@ -75,6 +75,8 @@ Objective-C public names use the `SSHKit` prefix:
 - `SSHKitAuthentication`
 - `SSHKitHostKeyPolicy`
 - `SSHKitHostTrustStore`
+- `SSHKitKeychainTrustStore`
+- `SSHKitMemoryTrustStore`
 - `SSHKitConnection`
 - `SSHKitCommandResult`
 - `SSHKitShell`
@@ -148,6 +150,8 @@ configuration.hostKeyPolicy =
     }];
 }];
 ```
+
+The Objective-C façade types write through to the same configuration fields used by the core connection layer. `SSHKitHostKeyPolicy` resolves memory and Keychain trust stores when a connection is created so host and port changes are reflected in the final trust lookup.
 
 ## Ownership Model
 

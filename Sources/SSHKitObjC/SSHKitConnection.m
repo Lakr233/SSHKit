@@ -8,6 +8,10 @@
 #import "SSHKitShell+Private.h"
 #import "SSHKitTunnelChannel+Private.h"
 
+@interface SSHKitConfiguration (SSHKitResolution)
+- (SSHKitConfiguration *)sshkit_resolvedConfiguration;
+@end
+
 @interface SSHKitConnection ()
 
 @property (nonatomic, copy, readwrite) SSHKitConfiguration *configuration;
@@ -467,7 +471,7 @@
 - (instancetype)initWithConfiguration:(SSHKitConfiguration *)configuration {
     self = [super init];
     if (self) {
-        _configuration = [configuration copy];
+        _configuration = [configuration sshkit_resolvedConfiguration];
         _worker = [[SSHCoreSessionWorker alloc] init];
         _client = [[SSHCoreOpenSSHClient alloc] initWithConfiguration:_configuration worker:_worker];
     }

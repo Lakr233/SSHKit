@@ -191,6 +191,52 @@ import Testing
     #expect(jump.knownHostsPath == "/tmp/jump_known_hosts")
 }
 
+@Test func `SCP validator rejects unsafe paths and filenames`() {
+    expectThrows {
+        try SCPPathValidator.validateRemotePath("")
+    }
+    expectThrows {
+        try SCPPathValidator.validateRemotePath("-option")
+    }
+    expectThrows {
+        try SCPPathValidator.validateRemotePath("bad\npath")
+    }
+    expectThrows {
+        try SCPPathValidator.validateFilename("../secret")
+    }
+    expectThrows {
+        try SCPPathValidator.validateFilename("bad\rname")
+    }
+    expectThrows {
+        try SCPPathValidator.validatePermissions(0o10000)
+    }
+    expectThrows {
+        _ = try SCPPathValidator.validatedByteCount(UInt64(Int.max) + 1)
+    }
+}
+
+@Test func `SCP upload size guard rejects large local sources before transfer`() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("SSHKitSCPUnitTests")
+        .appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let url = directory.appendingPathComponent("source.txt")
+    try Data(repeating: 0x61, count: 4).write(to: url)
+
+    expectThrows {
+        try SCPPathValidator.validateUploadSize(localURL: url, maximumSize: 3)
+    }
+    expectThrows {
+        try SCPPathValidator.validateUploadByteCount(5, maximumSize: 4)
+    }
+    try SCPPathValidator.validateUploadSize(localURL: url, maximumSize: 4)
+    try SCPPathValidator.validateUploadByteCount(4, maximumSize: 4)
+}
+
+@Test func `SCP shell quoting preserves single quotes`() {
+    #expect(SCPPathValidator.shellQuoted("/tmp/it's-here") == "'/tmp/it'\\''s-here'")
+}
+
 @Test func `diagnostic report includes connection context and redacts metadata`() {
     let configuration = SSHClientConfiguration(
         host: "example.com",
@@ -216,4 +262,13 @@ import Testing
     #expect(report.metadata["privateKeyPassphrase"] == "<redacted>")
     #expect(report.metadata["attempt"] == "1")
     #expect(report.recentEvents[0].metadata["password"] == "<redacted>")
+}
+
+private func expectThrows(_ operation: () throws -> Void) {
+    do {
+        try operation()
+        #expect(Bool(false))
+    } catch {
+        #expect(Bool(true))
+    }
 }

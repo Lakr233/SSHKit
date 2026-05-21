@@ -1,36 +1,63 @@
 # SSHKit
 
-Swift package for libssh on Apple platforms.
+Swift Package wrapping [libssh](https://www.libssh.org/) for Apple platforms.
+SSHKit provides async/await, callback, and Objective-C APIs for embedding SSH
+client features in Apple apps. It ships `SSHKit`, `SSHKitObjC`, and `CLibSSH`
+as dynamic library products so the LGPL boundary remains explicit.
 
-Products are dynamic libraries so LGPL library replacement stays explicit.
+## Platforms
 
-Current MVP capabilities:
+iOS 13+, macOS 10.15+, Mac Catalyst 13+, tvOS 13+, visionOS 1+.
+watchOS is not supported.
 
-- password, private-key-file, keyboard-interactive, agent, and generated-key authentication
-- known-hosts files, pinned fingerprints, memory trust stores, and Keychain trust stores
-- collected commands, streamed commands, PTY shells, exit status, and exit signal metadata
-- SFTP directory, file, handle, upload, download, resume, symlink, and filesystem operations
-- direct TCP channels, local forwarding, remote forwarding, dynamic SOCKS forwarding, SOCKS5 routes, HTTP CONNECT routes, and ProxyJump
-- SCP single-file upload and download helpers
-- structured logging, bounded log recorders, diagnostic reports, algorithm profiles, and latency probes
+## Installation
 
-The live test suite targets external Alpine, legacy RSA, and Dropbear SSH fixtures. It covers real command, shell/PTY, SFTP list/upload/download, SCP, forwarding, proxy route, authentication failure, host-key failure, cancellation, and scoped connection behavior.
-
-Validation entry points:
-
-```sh
-swiftformat Sources Tests --swiftversion 6.2
-swift test
-Script/test-destinations.sh
-Script/test-live-fixture.sh
+```swift
+dependencies: [
+    .package(url: "https://github.com/Lakr233/SSHKit.git", from: "0.1.6"),
+]
 ```
 
-`Script/test-live-fixture.sh` requires the external fixture environment in `Documentation/Fixtures/AlpineSSH.md` and rejects loopback hosts.
+Add `.product(name: "SSHKit", package: "SSHKit")` to your target.
 
-## Example app
+## Quick Start
 
-`Example/SSHKitExample.xcodeproj` is a multi-platform SwiftUI sample (iOS / macOS / Mac Catalyst on the 26 floor) that exercises commands, shell, SFTP, port forwards, and the latency probe. The terminal is wired through [libghostty-spm](https://github.com/Lakr233/libghostty-spm) via `InMemoryTerminalSession`. See `Example/README.md`.
+```swift
+import SSHKit
+
+let config = SSHClient.Configuration(
+    host: "example.com",
+    username: "deploy",
+    authentication: .password("secret"),
+    hostKeyPolicy: .knownHostsFile("/Users/me/.ssh/known_hosts")
+)
+
+let result = try await SSHClient.withConnection(config) {
+    try await $0.execute("uname -a")
+}
+print(String(decoding: result.standardOutput, as: UTF8.self))
+```
+
+## Features
+
+- Password, private-key-file, keyboard-interactive, and SSH agent authentication.
+- Known-hosts files, pinned fingerprints, memory trust stores, and Keychain trust stores.
+- Commands, PTY shells, SFTP, SCP, port forwarding, ProxyJump, and diagnostics.
+- Modern algorithm defaults with an opt-in legacy RSA profile.
+
+One `SSHConnection` runs one active high-level job at a time. Use more
+connections for concurrent work, and reserve `.insecureAcceptAnyHostKey` for
+disposable development fixtures.
+
+## Documentation
+
+Full guide, API notes, architecture overview, and Objective-C usage:
+[SSHKit on GitHub Pages](https://lakr233.github.io/SSHKit/).
+
+The sample app in `Example/SSHKitExample.xcodeproj` covers the main workflows.
 
 ## License
 
-SSHKit project code is licensed under the MIT License. Vendored libssh code remains under its upstream GNU Lesser General Public License terms at `Vendor/libssh/COPYING`. See `NOTICE`.
+SSHKit project code is MIT licensed. See [LICENSE](LICENSE). Vendored libssh
+code under `Vendor/libssh` remains under upstream GNU LGPL terms. Third-party
+dependencies retain their own licenses; see [NOTICE](NOTICE).

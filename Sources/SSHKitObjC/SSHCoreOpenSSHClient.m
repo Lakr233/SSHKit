@@ -44,6 +44,11 @@ static int SSHCoreProxyJumpBeforeConnection(ssh_session session, void *userdata)
             return SSH_ERROR;
         }
     }
+    if (configuration.authenticationKind == SSHKitAuthenticationKindAgent && configuration.identityAgentPath.length > 0) {
+        if (ssh_options_set(session, SSH_OPTIONS_IDENTITY_AGENT, configuration.identityAgentPath.UTF8String) != SSH_OK) {
+            return SSH_ERROR;
+        }
+    }
     return SSH_OK;
 }
 
@@ -80,6 +85,9 @@ static int SSHCoreProxyJumpAuthenticate(ssh_session session, void *userdata) {
         }
         case SSHKitAuthenticationKindKeyboardInteractive:
             return SSH_ERROR;
+        case SSHKitAuthenticationKindAgent:
+            rc = ssh_userauth_agent(session, NULL);
+            break;
     }
     return rc == SSH_AUTH_SUCCESS ? SSH_OK : SSH_ERROR;
 }
@@ -162,6 +170,8 @@ static NSString *SSHCoreAuthenticationName(SSHKitAuthenticationKind kind) {
             return @"privateKeyFile";
         case SSHKitAuthenticationKindKeyboardInteractive:
             return @"keyboardInteractive";
+        case SSHKitAuthenticationKindAgent:
+            return @"agent";
     }
 }
 
@@ -3091,6 +3101,15 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
         }
     }
 
+    if (self.configuration.authenticationKind == SSHKitAuthenticationKindAgent && self.configuration.identityAgentPath.length > 0) {
+        if (ssh_options_set(session, SSH_OPTIONS_IDENTITY_AGENT, self.configuration.identityAgentPath.UTF8String) != SSH_OK) {
+            if (error) {
+                *error = [self libSSHErrorWithSession:session code:SSHKitErrorCodeAuthenticationFailed fallback:@"Unable to configure SSH agent socket."];
+            }
+            return NO;
+        }
+    }
+
     if (self.configuration.proxyRouteKind == SSHKitProxyRouteKindProxyJump) {
         if (![self configureProxyJumpForSession:session error:error]) {
             return NO;
@@ -3601,6 +3620,9 @@ static NSString *SSHCoreHostKeyPolicyName(SSHKitHostKeyPolicyKind kind) {
         }
         case SSHKitAuthenticationKindKeyboardInteractive:
             return [self authenticateKeyboardInteractiveSession:session error:error];
+        case SSHKitAuthenticationKindAgent:
+            rc = ssh_userauth_agent(session, NULL);
+            break;
     }
 
     if (rc == SSH_AUTH_SUCCESS) {

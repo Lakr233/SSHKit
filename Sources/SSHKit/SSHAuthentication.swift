@@ -12,10 +12,19 @@ public struct SSHKeyboardInteractivePrompt: Equatable, Sendable {
 
 public typealias SSHKeyboardInteractiveResponseProvider = @Sendable (_ name: String, _ instruction: String, _ prompts: [SSHKeyboardInteractivePrompt]) -> [String]
 
+public struct SSHAgentConfiguration: Equatable, Sendable {
+    public var socketPath: String?
+
+    public init(socketPath: String? = nil) {
+        self.socketPath = socketPath
+    }
+}
+
 public enum SSHAuthentication: Sendable {
     case password(String)
     case privateKeyFile(path: String, passphrase: String? = nil)
     case keyboardInteractive(SSHKeyboardInteractiveResponseProvider)
+    case agent(SSHAgentConfiguration = SSHAgentConfiguration())
 
     var diagnosticName: String {
         switch self {
@@ -25,6 +34,8 @@ public enum SSHAuthentication: Sendable {
             "privateKeyFile"
         case .keyboardInteractive:
             "keyboardInteractive"
+        case .agent:
+            "agent"
         }
     }
 }

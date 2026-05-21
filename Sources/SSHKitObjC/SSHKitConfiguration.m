@@ -75,6 +75,7 @@
     copy.privateKeyPath = self.privateKeyPath;
     copy.privateKeyPassphrase = self.privateKeyPassphrase;
     copy.keyboardInteractiveResponder = self.keyboardInteractiveResponder;
+    copy.identityAgentPath = self.identityAgentPath;
     copy.hostKeyPolicyKind = self.hostKeyPolicyKind;
     copy.knownHostsPath = self.knownHostsPath;
     copy.timeout = self.timeout;

@@ -6,6 +6,7 @@ typedef NS_ENUM(NSInteger, SSHKitAuthenticationKind) {
     SSHKitAuthenticationKindPassword = 1,
     SSHKitAuthenticationKindPrivateKeyFile = 2,
     SSHKitAuthenticationKindKeyboardInteractive = 3,
+    SSHKitAuthenticationKindAgent = 4,
 };
 
 @class SSHKitKeyboardInteractivePrompt;
@@ -71,6 +72,7 @@ typedef void (^SSHKitLogHandler)(SSHKitLogEvent *event);
 @property (nonatomic, copy, nullable) NSString *privateKeyPath;
 @property (nonatomic, copy, nullable) NSString *privateKeyPassphrase;
 @property (nonatomic, copy, nullable) SSHKitKeyboardInteractiveResponder keyboardInteractiveResponder;
+@property (nonatomic, copy, nullable) NSString *identityAgentPath;
 @property (nonatomic) SSHKitHostKeyPolicyKind hostKeyPolicyKind;
 @property (nonatomic, copy, nullable) NSString *knownHostsPath;
 @property (nonatomic) NSTimeInterval timeout;

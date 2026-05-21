@@ -28,6 +28,9 @@ extension SSHClientConfiguration {
                 }
                 return responseProvider(name, instruction, swiftPrompts)
             }
+        case let .agent(agentConfiguration):
+            configuration.authenticationKind = .agent
+            configuration.identityAgentPath = agentConfiguration.socketPath
         }
 
         switch hostKeyPolicy {

@@ -57,10 +57,14 @@ class LiveSSHTestCase: XCTestCase {
     }
 
     func awaitSmokeCommand(on connection: SSHConnection) throws -> SSHCommandResult {
+        try runCommand("whoami && cat /etc/alpine-release", on: connection)
+    }
+
+    func runCommand(_ command: String, on connection: SSHConnection) throws -> SSHCommandResult {
         let expectation = expectation(description: "Execute Alpine SSH smoke command")
         var commandResult: Result<SSHCommandResult, SSHKitError>?
 
-        connection.execute("whoami && cat /etc/alpine-release", callbackQueue: .main) { result in
+        connection.execute(command, callbackQueue: .main) { result in
             commandResult = result
             expectation.fulfill()
         }

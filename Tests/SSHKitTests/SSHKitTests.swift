@@ -59,6 +59,18 @@ import Testing
     #expect(answers == ["secret"])
 }
 
+@Test func `agent authentication bridges to Objective C configuration`() {
+    let configuration = SSHClientConfiguration(
+        host: "example.com",
+        username: "user",
+        authentication: .agent(SSHAgentConfiguration(socketPath: "/tmp/agent.sock")),
+        hostKeyPolicy: .knownHostsFile("/tmp/known_hosts"),
+    ).bridgeConfiguration
+
+    #expect(configuration.authenticationKind == .agent)
+    #expect(configuration.identityAgentPath == "/tmp/agent.sock")
+}
+
 @Test func `authentication discovery maps Objective C methods`() {
     let result = SSHKitAuthenticationDiscoveryResult(
         methods: [
@@ -189,6 +201,27 @@ import Testing
     #expect(jump.authenticationKind == .privateKeyFile)
     #expect(jump.privateKeyPath == "/tmp/jump_key")
     #expect(jump.knownHostsPath == "/tmp/jump_known_hosts")
+}
+
+@Test func `OpenSSH key generation exports authorized key`() throws {
+    let keyPair = try SSHKeyGenerator.generateOpenSSHKeyPair(type: .ed25519, comment: "sshkit-test")
+
+    #expect(keyPair.privateKeyOpenSSH.contains("BEGIN OPENSSH PRIVATE KEY"))
+    #expect(keyPair.authorizedKey.hasPrefix("ssh-ed25519 "))
+    #expect(keyPair.authorizedKey.hasSuffix(" sshkit-test"))
+    #expect(keyPair.publicKeyType == "ssh-ed25519")
+}
+
+@Test func `Keychain credential store saves and loads app credentials`() throws {
+    let store = SSHKeychainCredentialStore(service: "wiki.qaq.sshkit.tests.\(UUID().uuidString)")
+    let account = "fixture@example.com"
+    let credential = SSHPrivateKeyCredential(privateKeyOpenSSH: "-----BEGIN OPENSSH PRIVATE KEY-----\ntest\n-----END OPENSSH PRIVATE KEY-----")
+
+    try store.savePassword("secret", account: account)
+    try store.savePrivateKey(credential, account: account)
+
+    #expect(try store.password(account: account) == "secret")
+    #expect(try store.privateKey(account: account) == credential)
 }
 
 @Test func `SCP validator rejects unsafe paths and filenames`() {

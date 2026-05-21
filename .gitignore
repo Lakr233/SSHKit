@@ -2,7 +2,8 @@
 .swiftpm/
 DerivedData/
 Package.resolved
-*.xcuserdata/
+xcuserdata/
+*.xcuserstate
 .DS_Store
 repomix-output.xml
 Script/*.local.sh

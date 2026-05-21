@@ -109,7 +109,7 @@ let package = Package(
             ],
             linkerSettings: [
                 .linkedLibrary("z"),
-            ],
+            ]
         ),
         .target(
             name: "SSHKitObjC",
@@ -121,7 +121,7 @@ let package = Package(
             ],
             linkerSettings: [
                 .linkedFramework("Security"),
-            ],
+            ]
         ),
         .target(
             name: "SSHKit",
@@ -132,7 +132,7 @@ let package = Package(
             path: "Sources/SSHKit",
             swiftSettings: [
                 .swiftLanguageMode(.v5),
-            ],
+            ]
         ),
         .testTarget(
             name: "SSHCoreObjCTests",
@@ -140,16 +140,16 @@ let package = Package(
             path: "Tests/SSHCoreObjCTests",
             cSettings: [
                 .headerSearchPath("../../Sources/SSHKitObjC/Private"),
-            ],
+            ]
         ),
         .testTarget(
             name: "SSHKitTests",
-            dependencies: ["SSHKit"],
+            dependencies: ["SSHKit"]
         ),
         .testTarget(
             name: "LiveSSHTests",
-            dependencies: ["SSHKit"],
+            dependencies: ["SSHKit"]
         ),
     ],
-    cLanguageStandard: .c11,
+    cLanguageStandard: .c11
 )

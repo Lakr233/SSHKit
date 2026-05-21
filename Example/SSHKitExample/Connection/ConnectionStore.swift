@@ -11,25 +11,13 @@ struct PendingEnrollment: Identifiable {
     let fingerprint: SSHHostKeyFingerprint
 }
 
-enum ActiveSheet: Identifiable {
-    case setup
-    case enrollment(PendingEnrollment)
-
-    var id: String {
-        switch self {
-        case .setup: "setup"
-        case let .enrollment(pending): "enrollment-\(pending.id)"
-        }
-    }
-}
-
 @MainActor
 @Observable
 final class ConnectionStore {
     var configuration: SSHClientConfiguration?
     var pool: ConnectionPool?
     var lastError: SSHKitError?
-    var activeSheet: ActiveSheet?
+    var pendingEnrollment: PendingEnrollment?
 
     let trustStore = HostTrustStoreFactory.makeDefault()
     let logRecorder = AppLog.recorder
@@ -38,17 +26,6 @@ final class ConnectionStore {
         AppLog.info(.lifecycle, "ConnectionStore initialized", metadata: [
             "trustStore": String(describing: type(of: trustStore)),
         ])
-        if configuration == nil {
-            AppLog.info(.lifecycle, "No active configuration, opening setup sheet")
-            activeSheet = .setup
-        }
-    }
-
-    func startSetupFlow() {
-        AppLog.info(.ui, "User invoked Connect/Reconnect", metadata: [
-            "hadConfiguration": String(configuration != nil),
-        ])
-        activeSheet = .setup
     }
 
     /// Discover the host key first, then verify the password before the
